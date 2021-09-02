@@ -32,7 +32,7 @@
 
 
 
-### Git 对象
+### 二进制文件对象
 
 ​	Git 更加像是一个键值对数据库，在向 Git 中写入内容时，都会得到唯一的一个键，然后通过这个键就可以再得到这个对象。可以通过 `git hash-object` 进行这个操作
 
@@ -54,7 +54,7 @@ echo "Hello World!" | git hash-object --stdin
 echo "Hello World!" | git hash-object -w --stdin
 ```
 
-对 `objects` 进行查找，可以看到对应的对象已经被存储到 Git 中了。
+​	对 `objects` 进行查找，可以看到对应的对象已经被存储到 Git 中了。
 
 <img src="https://s3.jpg.cm/2021/08/31/IJ6q3f.png">
 
@@ -73,9 +73,9 @@ git cat-file -p 980a0d5f19a64b4b30a87d4206aade58726b60e3
 Hello World!
 ```
 
-现在，对于 Git 对于对象的存储的过程已经有了一个基本的了解，接下来看看对于修改的文件对象的存储。
+​	现在，对于 Git 对于对象的存储的过程已经有了一个基本的了解，接下来看看对于修改的文件对象的存储。
 
-首先，创建一个文件并且写入一些内容，按照上面的方法将文件存储到 Git 中：
+​	首先，创建一个文件并且写入一些内容，按照上面的方法将文件存储到 Git 中：
 
 ```bash
 # 创建一个文件，输入一些内容
@@ -87,7 +87,7 @@ git hash-object -w test.txt
 335d079908a9ed113c12509b3e41b2d35f0610fd
 ```
 
-然后，修改 `test.txt` 文件中的内容，然后再重新添加到 Git 中
+​	然后，修改 `test.txt` 文件中的内容，然后再重新添加到 Git 中
 
 ```bash
 # 修改 test.txt 文件中的内容
@@ -99,10 +99,66 @@ git hash-object -w test.txt
 e3d5c7939df71039542c56017d0258d11ea4051d
 ```
 
-现在，查看 `objects` 目录下的文件内容：
+​	现在，查看 `objects` 目录下的文件内容：
 
 <img src="https://s3.jpg.cm/2021/08/31/IJ6fd2.png" >
 
+​	现在，创建的 `test.txt` 的两个不同版本的文件就都存储在 `objects` 的目录中了。
 
+​	此时 Git 的状态就类似于使用 `git commit` 命令将文件存储到本地数据库了。即使此时 `test.txt` 文件被删除了，也能通过对应的 `SHA1` 哈希值找回该对象，现在，删除 `test.txt` 文件对象。
+
+```bash
+rm -i test.txt
+```
+
+<img src="https://s3.jpg.cm/2021/09/02/IJ9tou.png">
+
+​	然后通过 `git cat-file` 命令来找回该对象，这里以找回第一个版本的 `test.txt` 文件对象为例。
+
+```bash
+# 使用 `git cat-file` 从对象树中取回 335d0799 文件对象，将得到的输入重定向到 test.txt 文件中
+git cat-file -p 335d079908a9ed113c12509b3e41b2d35f0610fd > test.txt
+
+# 查看得到的 test.txt 文件对象
+cat test.txt
+```
+
+<img src="https://s3.jpg.cm/2021/09/02/IJ9rFX.png">
+
+​	可以看到，`test.txt` 文件对象的第一个版本已经被恢复了。
+
+​	这就是 Git 存储文件对象的基本原理，通过生成对应的 `SHA1` 哈希值，将对应的文件放入由该哈希值组成的 目录 +  文件名的结构中，即可完成对文件对象的存储；通过对不同的文件生成相对应的哈希值，即可完成对文件版本的控制！
+
+​	然而，如果在现实生活中记住这些哈希值时不可能的，因此，Git 引入了树对象进行进一步的管理
+
+
+
+### 树对象
+
+​	Git 通过一种类似于 `Unix` 文件系统的方式对存储相关的内容，所有的内容都以二进制数据对象和树对象的形式进行存储。其中，树对象对应 `Unix` 文件系统中的目录项，二进制数据对象则大致对应了 `inodes` 或者文件内容。一个树对象包含了一条或多条树对象记录，每条记录都包含着一个指向数据对象或者子树对象的 `SHA1` 指针，以及相应的模式、类型、文件名信息。
+
+```bash
+# 查看 master 分支下面的最新提交指向的树对象，
+# 注意，使用之前的 `git hash-object -w` 写入对象时不会初始化默认的分支 master，这里的 master 分支是另一个 Git 存储库的分支。
+git cat-file -p master^{tree}
+```
+
+<img src="https://s3.jpg.cm/2021/09/02/IJaxt5.png">
+
+​	可以看到，这里的 `tree` 表示的就是一个树对象，使用 `git cat-file` 查看该树对象
+
+```bash
+git cat-file -p d9bf1fc487b0165948a2bf981804a3090d8f82b3
+```
+
+​	可能会看到类似的输出：
+
+```bash
+100644 blob 20d36530d4b131c26649c0291a0a5f912cd266ea    file
+```
+
+​	此时，该仓库内部存储的数据组成如下图所示：
+
+​	<img src="https://s3.jpg.cm/2021/09/02/IJi5tp.png" style="zoom:80">
 
 ​	
