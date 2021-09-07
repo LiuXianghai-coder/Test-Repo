@@ -437,7 +437,128 @@ git cat-file -p 537cd069f8f7fa4688cef81af57c98b5ebc81503
 
 ### 数据恢复
 
+​	当强制切换当前的工作目录到原先的提交对象（`git reset --hard`）时，此时查看提交日志时只能看到本次提交之前的日志。此时可以考虑使用 `git reflog` 来解决这种窘迫的情况。在每次提交或者修改分支时，Git 会通过 `git update-index` 来更新引用日志。
 
+```bash
+# 查看引用日志
+git reflog
+```
 
+<img src="https://s3.jpg.cm/2021/09/07/INSzOi.png">
 
+​	使用 `git reflog` 显示的信息比较少，试试 `git log -g` （`-g` 选项表示输出引用日志）
 
+​	通过引用日志，找到你要切换的提交，为它创建一个分支，即可解决这个问题。
+
+​	如果引用日志被删除了，就不能再使用上面的方案解决这个问题了。比较实用的方法是使用 `git fsck` 来检测 Git 仓库的完整性，添加 `--full` 选项，会显示所有没有被其它对象指向的对象。
+
+```bash
+# 删除日志文件，这里只是为了掩饰，一般情况下不要这么做！
+rm -rf .git/logs/
+
+git fsck --full
+```
+
+<img src="https://s3.jpg.cm/2021/09/07/INSifz.png" />
+
+​	`dangling commit` 就是已经丢失提交，使用 `git reset --hard` 可以回退到这个提交。
+
+### 移除对象*
+
+​	按照 Git 的处理方式，在添加一个对象提交之后，这个对象就会一直存在于之后的每次提交中。如果在一次提交中不小心添加了一个大的无用文件，那么即便移除了这个文件，但是它依旧存在于 Git 仓库中的某个提交上（Git 设计如此）。如果想要删除这个大的无用文件，必须从添加它的那次提交开始，对于之后的每次提交都移除这个文件。（这个操作具有很强的破坏性）
+
+```bash
+# 添加一个大的二进制文件，然后创建一次提交
+git add node.exe
+git commit -m "Add a big file"
+
+# 移除这个二进制文件，创建一个提交
+git rm node.exe
+git add .
+git commit -m "remove big file"
+```
+
+​	现在，把这些游离的对象打包
+
+```bash
+git gc
+```
+
+​	查看当前的对象的总大小
+
+```bash
+git count-objects -v
+```
+
+<img src="https://s3.jpg.cm/2021/09/07/INrlUz.png" />
+
+​	可以看到，当前的包大小大概有 10MB
+
+​	找到这个大文件
+
+```bash
+# 找到这个大文件
+# 由于 verify-pack 输出的第三列表示文件大小，因此将 sort 的 -k 指定为 3，-n 表示按照数值进行排序
+# tail -3 表示获取最后的三行输出
+git verify-pack -v .git/objects/pack/pack-07607c557474562adfc40f88233d3789a9990ce3.idx | sort -k 3 -n | tail -3
+```
+
+<img src="https://s3.jpg.cm/2021/09/07/INr448.png" />
+
+​	通过这个大文件的 SHA 找出这个大文件的名称
+
+```bash
+# git rev-list 列出所有的 SHA 值，--objects 表示输出提交的SHA、数据对象的 SHA 以及相关联的文件路径
+git rev-list  --objects --all | grep b910fb4f15b71292efe102d7459fda6e6b716126
+# 得到的输出
+b910fb4f15b71292efe102d7459fda6e6b716126 node.exe
+```
+
+​	这样一顿操作后，就找到了这个“罪魁祸首”，然后要做的就是修改从添加这个文件开始的提交，使用 `git filter-branch` 可以做到。但是在那之前，要找到首先加入该文件的提交。
+
+```bash
+# 通过提交日志来找到最先开始提交该文件的提交对象
+git log --oneline --branches -- node.exe
+
+# 得到的输出
+1fef53b (HEAD -> master) remove big file
+da6a29d add a big file
+```
+
+​	现在，重写自 `da6a29d` 开始的提交
+
+```bash
+# --index-filter 表示修改暂存区或索引中的文件，可以通过 --tree-filter 会修改在硬盘上检出的文件（在此也是有效的）
+# 必须使用 git rm --cached 来移除文件，因为需要从索引中移除这个文件（这个文件已经不在工作区中了）
+# -- da6a29d^.. 表示修改自 da6a29d 以来的提交 
+git filter-branch --index-filter \
+  'git rm --ignore-unmatch --cached node.exe' -- da6a29d^..
+```
+
+<img src="https://s3.jpg.cm/2021/09/07/INsSRC.png" />
+
+​	现在，在历史提交中已经不存在该文件的引用了，但是，在使用 `filter-branch` 中添加的新引用中，引用日志和 `.git/refs/original` 中依旧包含对该文件的引用，因此必须删除它们然后再重新打包。
+
+```bash
+# 删除引用日志和新添加的引用
+rm -rf .git/refs/original
+rm -rf .git/logs
+
+# 重新打包
+git gc
+```
+
+​	现在再来查看包文件对象的大小
+
+<img src="https://s3.jpg.cm/2021/09/07/INEQXz.png" />
+
+​	可以看到，包文件已经从原来的接近 10MB 变为了 2KB。但是到这里还没有结束，由于 Git 在写入文件时将它写入到了 Git 存储库中，因此现在在 Git 存储库中依旧保留有该文件对象，只是它不会在之后的提交和推送中出现而已。要完全删除它，使用 `git prune` 来彻底删除它。
+
+```bash
+# --expire now 表示只删除当前时间之前的游离对象
+git prune --expire now
+```
+
+<img src="https://s3.jpg.cm/2021/09/07/INEsnL.png" />
+
+​	现在，这个大文件终于已经被彻底删除了。
