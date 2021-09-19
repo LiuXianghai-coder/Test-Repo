@@ -325,7 +325,7 @@ git config --global core.editor emacs
 
     ​	此时执行 `git reset --soft a7d5c77` （之前讲过，一般文件管理八位的校验和 Git 就可以找到对应的引用文件版本），将会使得 HEAD 指针移动到 `a7d5c77` 的文件版本。此时看起来像这样：
 
-    ​	<img src="https://s3.jpg.cm/2021/08/10/IXX0Ph.png" style="zoom:80%">
+    ​	<img src="https://s3.jpg.cm/2021/08/10/IXXOBk.png" style="zoom:80%">
 
     ​	这样的话，修改暂存区的内容再次提交就相当于取消了上次的提交，然后更换为了新的提交。（事实上，将这一操作理解为在仓库中根据上一版本新建了一个分支可能更为合理一些）。这也是 `git commit --amend`（修改最后一次提交）的工作原理。
 
