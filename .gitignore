@@ -1,5 +1,6 @@
+.gitignore
 img_1.txt
 imgData.txt
-
-.gitignore
 img.txt
+*.jar
+*.class

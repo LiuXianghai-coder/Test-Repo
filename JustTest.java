@@ -1,6 +1,6 @@
-package com.example.demo;
+package com.maven.spider;
 
-import com.example.demo.entity.ImgHref;
+import lombok.SneakyThrows;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -16,6 +16,11 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * @author xhliu2
@@ -40,9 +45,13 @@ public class JustTest {
 
     private final static Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", 10809));
 
-    private final static String getAllSQL = "SELECT * FROM manhua_img LIMIT 1";
+    private final static String getAllSQL = "SELECT * FROM manhua_img LIMIT ? OFFSET ?";
 
-    static  {
+    private final static String countSQL = "SELECT COUNT(*) AS num FROM manhua_img";
+
+    private final static AtomicLong count = new AtomicLong(0);
+
+    static {
         try {
             Class.forName("org.postgresql.Driver");
         } catch (ClassNotFoundException e) {
@@ -50,12 +59,43 @@ public class JustTest {
         }
     }
 
-    public void getData() throws Throwable {
+    public void start() {
+        try {
+            new Thread(new TestThreadRun(0, 405)).start();
+            new Thread(new TestThreadRun(405, 405)).start();
+            new Thread(new TestThreadRun(810, 405)).start();
+            new Thread(new TestThreadRun(1205, 406)).start();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static class TestThreadRun implements Runnable {
+        private final int start, num;
+
+        public TestThreadRun(int start, int num) {
+            this.start = start;
+            this.num = num;
+        }
+
+        @SneakyThrows
+        @Override
+        public void run() {
+            JustTest test = new JustTest();
+            test.getData(this.start, this.num);
+        }
+    }
+
+    private void getData(int start, int num) throws Throwable {
+        ResultSet resultSet = null;
         try (
                 Connection connection = DriverManager.getConnection(url, userName, password);
                 PreparedStatement preparedStatement = connection.prepareStatement(getAllSQL);
-                ResultSet resultSet = preparedStatement.executeQuery();
         ) {
+            preparedStatement.setInt(1, num);
+            preparedStatement.setInt(2, start);
+            resultSet = preparedStatement.executeQuery();
+
             while (resultSet.next()) {
                 ImgHref imgHref = new ImgHref();
                 imgHref.setImgId(resultSet.getLong("img_id"));
@@ -67,14 +107,19 @@ public class JustTest {
             }
         } catch (Exception e) {
             e.printStackTrace();
+        } finally {
+            if (null != resultSet)
+                resultSet.close();
         }
     }
 
     private void getImg(ImgHref imgHref) throws Throwable {
         File file = new File(path + chapter + imgHref.getChapterId());
         if (!file.exists()) {
-            if (file.mkdirs())
-                System.out.println("mkdir success");
+            if (file.mkdirs()) {
+                // System.out.println("mkdir success");
+                /* TODO */
+            }
         }
 
         ByteBuffer byteBuffer = ByteBuffer.allocateDirect(bufferSize);
@@ -82,10 +127,13 @@ public class JustTest {
 
         file = new File(fileName);
         if (!file.exists()) {
-            if (file.createNewFile())
-                System.out.println("create file success.");;
+            if (file.createNewFile()) {
+                // System.out.println("create file success.");
+                /* TODO */
+            }
         }
 
+        System.out.println("save href: " + imgHref.getImgHref() + "\tcount: " + count.getAndIncrement());
         HttpURLConnection connection = (HttpURLConnection) new URL(imgHref.getImgHref()).openConnection(proxy);
         connection.setRequestProperty(USER_AGENT, USER_AGENT_VAL);
         connection.setRequestMethod("GET");
@@ -100,32 +148,43 @@ public class JustTest {
         }
     }
 
-    public static void main(String[] args) throws Throwable {
-//        Proxy proxy = new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", 10809));
-//
-//        URL url = new URL("https://cda11.mangadna.com/online/264/94/1--813.jpg");
-//
-//        String puny = IDN.toASCII(url.getHost());
-//        url = new URL(url.getProtocol(), puny, url.getPort(), url.getFile());
-//
-//        HttpURLConnection connection = (HttpURLConnection) url.openConnection(proxy);
-//        connection.setRequestMethod("GET");
-//        connection.setInstanceFollowRedirects(false);
-//        connection.addRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" +
-//                " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36");
-//
-//        connection.connect();
-//        FileOutputStream outputStream = new FileOutputStream("a.png");
-//        InputStream inputStream = connection.getInputStream();
-//        int val;
-//        byte[] buffer = new byte[1024*4];
-//        while ((val = inputStream.read(buffer)) > 0)
-//            outputStream.write(buffer, 0, val);
-//
-//        System.out.println(connection.getResponseMessage());
-//        System.out.println(connection.getContentLength());
+    private static void saveData() {
+        String sql = "INSERT INTO comic_dir(comic_name, chapter_name, img_num) VALUES(?, ?, ?)";
+        try (
+                Connection connection = DriverManager.getConnection("jdbc:postgresql://127.0.0.1:5432/manhua", userName, password);
+                PreparedStatement preparedStatement = connection.prepareStatement(sql);
+        ) {
+            File[] chapters = new File("D:/data/img").listFiles();
+            ConcurrentHashMap<String, Integer> chapterMap = new ConcurrentHashMap<>();
 
+            assert chapters != null;
+            for (File chapter : chapters) {
+                chapterMap.putIfAbsent(chapter.getName(),
+                        Objects.requireNonNull(chapter.listFiles()).length);
+            }
+
+            for (String chapter : chapterMap.keySet()) {
+                for (int i = 1; i <= chapterMap.get(chapter); ++i) {
+                    Comic comic = new Comic();
+                    comic.setChapter(chapter);
+                    comic.setComicName("Secret-Class");
+                    comic.setChapterNumber(i);
+
+                    preparedStatement.setObject(1, comic.getComicName());
+                    preparedStatement.setObject(2, comic.getChapter());
+                    preparedStatement.setObject(3, comic.getChapterNumber());
+
+                    preparedStatement.execute();
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void main(String[] args) throws Throwable {
         JustTest justTest = new JustTest();
-        justTest.getData();
+//        justTest.start();
+        saveData();
     }
 }
