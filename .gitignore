@@ -1,0 +1,6 @@
+.gitignore
+img_1.txt
+imgData.txt
+img.txt
+*.jar
+*.class
