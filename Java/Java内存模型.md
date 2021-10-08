@@ -133,5 +133,54 @@
 
 ### 延迟化单例模式
 
-- 静态内部类
+- 延迟初始化类
+
+  ```java
+  public class Mouse {
+      private Mouse(){}
+      
+      /* 参考 JVM 种对于类初始化的几个条件，当访问 static 修饰的字段时，
+         如果类没有被初始化，那么首先初始化该类
+         
+         当调用 Mouse 的 getInstance() 静态工厂方法时，由于访问了 FiledHolder 的静态字段，因此会初始化改类。类的初始化是由 JVM 进行调度的，因此它是线程安全的
+         
+         注意使用的是内部静态类，它相当于一个与主类处于相同级别的类，因此当 Mouse 类初始化的时候并不会初始化这个静态内部类。
+      */
+      private static class FiledHolder {
+          static final Mouse holder = new Mouse();
+      }
+  
+      public Mouse getInstance() {return FiledHolder.holder;}
+  }
+  ```
+
 - `DCL`（双重检查锁）
+
+  ```java
+  public class Elephant {
+      /*
+        注意这里使用的 volatile 变量，结合上文的内容，使用 volatile 修饰的字段会在写操作之前添加 StoreStore 等内存屏障以维持 Happens-Before 规则，因此保证了对于类的构造会发生在将这个对象的引用赋值到目标变量之前
+      */
+      private volatile Elephant instance = null;
+  
+      public Elephant getInstance() {
+          /*
+            参见 《Effective Java》 第 83 条，引入局部变量 result 确保 instance 在被初始化的情况下读取一次，这样做可以提高性能
+          */
+          Elephant result = instance;
+          // 第一检查实例对象是否已经被初始化
+          if (result == null) {
+              // 同步初始化实例化类，避免由于多个线程同时进行初始化而破坏单例
+              synchronized (this) {
+                  // 再次检查实例是否被初始化过，这是因为当线程进来的时候，可能已经由其它的线程进行初始化了
+                  if (instance == null)
+                      instance = result = new Elephant();
+              }
+          }
+  
+          return result;
+      }
+  }
+  ```
+
+  ​	实际上，一般来讲，正常地使用饿汉式地方式来实现单例是最好的解决方案。但是如果确实需要使用延迟化的加载方式，如果需要使用到静态变量，那么使用延迟化初始化类的方式实现是最好的；如果不得不使用一个对象的字段来表示单例，那么就使用 `DCL` 的方式。
