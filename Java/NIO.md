@@ -91,7 +91,7 @@ Java 中 NIO 的继承类类对除了 `boolean` 类型外，其它的基本数�
 
     > 设置 `limit` 的值为 `position`，同时将 `position` 置为 0，同时丢弃 `mark`，为输出数据做准备。 
     >
-    > 一般在调用 `flip()` 方法后会调用 `compact()` 方法来移动缓冲区数据到开始位置
+    > 一般在调用 `flip()` 方法后会调用 `compact()` 方法来移动缓冲区后面的一部分数据到 buffer 的开始位置
 
   - `compact()`
 
@@ -147,4 +147,49 @@ Channel 与 Stream 的区别：
 获取 Channel：
 
 > ​	通过 `java.io.FileInputStream`, `java.io.FileOutputStream`, `java.io.RandomAccessFile`, `java.net.Socket`, `java.net.ServerSocket`, `java.net.DatagramSocket`, 和`java.net.MulticastSocket` 等对象的 `getChannel()` 方法可以获取一个 Channel 对象。
+
+实例：将一个文件复制到另一个文件
+
+```java
+import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+
+public class JustTest {
+    public static void main(String[] args) throws IOException {
+        File fileIn = new File("/home/lxh/awk/1.txt"); // 文件输入 channel
+        File fileOut = new File("/home/lxh/awk/2.txt"); // 文件输出 channel
+
+        ByteBuffer buffer = ByteBuffer.allocate(4*1024); // 分配缓冲区大小为 4*1024 字节，即 4 kb
+
+        // 使用 try(...) 的方式打开文件，可以有效避免由于忘记关闭流出现的一系列问题
+        try (
+                FileChannel in = new FileInputStream(fileIn).getChannel();
+                FileChannel out = new FileOutputStream(fileOut).getChannel();
+        ) {
+            // 从输入 channel 中读取字节到 buffer 中，读取的字节数可能是 0（数据已经读完）、-1（已到达输入流的末尾）或本次读取的字节数
+            int byteSize = in.read(buffer);
+            while (byteSize != -1) {
+                buffer.flip(); // 准备将 buffer 中的数据输出
+                out.write(buffer); // 将 buffer 中的数据写入到输出 channel 中
+                buffer.compact(); // 将 buffer 中已经输出的数据的后面部分移动到 buffer 的开始位置
+
+                byteSize = in.read(buffer);
+            }
+        }
+    }
+}
+```
+
+几种常见的文件复制方式之间的性能比较：
+
+测试源代码（基于 JDK 1.8 压缩文件的复制操作）：
+
+| BufferSize | directBuf | heapBuf | transferTo | Buffread | stdIo |
+| ---------- | --------- | ------- | ---------- | -------- | ----- |
+| 4KB        | 2308      | 214     | 75         | 2575     | 165   |
+| 16KB       | 90        | 109     | 76         | 834      | 115   |
+| 64KB       | 76        | 89      | 76         | 811      | 92    |
+| 256KB      | 76        | 88      | 72         | 816      | 87    |
+| 1024KB     | 82        | 95      | 66         | 812      | 86    |
 
