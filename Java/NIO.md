@@ -146,7 +146,7 @@ Channel 与 Stream 的区别：
 
 获取 Channel：
 
-> ​	通过 `java.io.FileInputStream`, `java.io.FileOutputStream`, `java.io.RandomAccessFile`, `java.net.Socket`, `java.net.ServerSocket`, `java.net.DatagramSocket`, 和`java.net.MulticastSocket` 等对象的 `getChannel()` 方法可以获取一个 Channel 对象。
+​	通过 `java.io.FileInputStream`, `java.io.FileOutputStream`, `java.io.RandomAccessFile`, `java.net.Socket`, `java.net.ServerSocket`, `java.net.DatagramSocket`, 和`java.net.MulticastSocket` 等对象的 `getChannel()` 方法可以获取一个 Channel 对象。
 
 
 
@@ -696,3 +696,13 @@ channel.write(buf);
 channel.close(); // Releases the Lock
 System.out.println("Content Writing is complete. Therefore close the channel and release the lock.");
 ```
+
+
+
+参考：
+
+<sup>[1]</sup> https://www3.ntu.edu.sg/home/ehchua/programming/java/J5b_IO_advanced.html
+
+<sup>[2]</sup> https://www.tutorialspoint.com/java_nio/index.htm
+
+<sup>[3]</sup> http://tutorials.jenkov.com/java-nio/index.html
