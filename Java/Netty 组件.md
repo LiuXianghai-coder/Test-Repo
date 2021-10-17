@@ -399,9 +399,23 @@ void init(Channel channel) { // 这里的 Channel 是实例化之后的 Channel�
 }
 ```
 
+初始化之后，服务端 `NioServerSocketChannel` 的 Pipeline 的底层 Handler 结构如下图所示：
 
+![Netty.png](https://i.loli.net/2021/10/17/nLQdc1ibXImK9Ge.png)
 
-### 客户端的 ChannelHandler
+当接收到一个新的客户端请求时，会调用 `ServerBootstrapAcceptor.channelRead` 方法，具体源代码如下图所示：
+
+```java
+ public void channelRead(ChannelHandlerContext ctx, Object msg) {
+     // 这里的 child 是分配到 workGroup 中的一个 Channel，不是服务端处理连接的 NioServerSocketChannel
+     final Channel child = (Channel) msg;
+
+     // 这里的 chilHandler 是在 ServerBootStrap 对象中通过 childHandler() 方法设置的
+     child.pipeline().addLast(childHandler);
+     
+     // 省略一部分不重要的代码
+ }
+```
 
 
 
