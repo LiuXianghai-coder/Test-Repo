@@ -357,6 +357,8 @@ protected DefaultChannelPipeline(Channel channel) {
 }
 ```
 
+即初始化 ChannelPipeline 时，会维护一个由 `ChannelHandlerContext` 组成的双向链表，这个链表的作用是对相应的 `Channel`  进行i相关的事件处理。
+
 
 
 ## ChannelHandler
