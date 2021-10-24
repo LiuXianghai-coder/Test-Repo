@@ -481,7 +481,7 @@ public BoundSql getBoundSql(Object parameterObject) {
 
 这个阶段的任务是真正执行 `SQL` 
 
-
+![MyBatis.png](https://i.loli.net/2021/10/25/vm6GiKxrysE4jJ5.png)
 
 ### 第六阶段
 
