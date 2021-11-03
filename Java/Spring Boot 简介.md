@@ -403,6 +403,7 @@ public SpringApplication(ResourceLoader resourceLoader, Class<?>... primarySourc
    
     /*
     	Web 应用程序的类型，包括 REACTIVE、NONE、SERVLET
+    	这里的实现是通过发现相关的类是否存在来进行判断的
     */
     this.webApplicationType = WebApplicationType.deduceFromClasspath();
     
@@ -473,6 +474,40 @@ private Class<?> deduceMainApplicationClass() {
     return null;
 }
 ```
+
+
+
+核心的方法 **`getSpringFactoriesInstances`**，通过这个方法将 `spring.factories` 中加载需要的对象，具体的源代码如下所示：
+
+```java
+private <T> Collection<T> getSpringFactoriesInstances(Class<T> type) {
+    return getSpringFactoriesInstances(type, new Class<?>[] {});
+}
+
+private <T> Collection<T> getSpringFactoriesInstances(Class<T> type, Class<?>[] parameterTypes, Object... args) {
+    ClassLoader classLoader = getClassLoader(); // 获取当前应用的类加载器
+    
+    /*
+    	SpringFactoriesLoader.loadFactoryNames 方法是 SpringFramework 中的方法，主要的任务是读取 spring.factories 文件中的类的全限定名
+    */
+    Set<String> names = new LinkedHashSet<>(SpringFactoriesLoader.loadFactoryNames(type, classLoader));
+    
+    /*
+    	通过类的权限定名来实例化这些类
+    */
+    List<T> instances = createSpringFactoriesInstances(type, parameterTypes, classLoader, args, names);
+    
+    AnnotationAwareOrderComparator.sort(instances);
+    
+    return instances;
+}
+```
+
+
+
+`SpringApplication` 的实例化流程如下所示：
+
+![SpringApplication.png](https://i.loli.net/2021/11/03/yPJGRdVM3aergn8.png)
 
 
 
