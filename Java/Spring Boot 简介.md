@@ -513,3 +513,91 @@ private <T> Collection<T> getSpringFactoriesInstances(Class<T> type, Class<?>[] 
 
 #### 调用 `run` 方法
 
+具体有以下执行流程：
+
+- 创建引导启动器的上下文
+
+  具体源代码如下所示：
+
+  ```java
+  // 创建启动引导器的上下文
+  private DefaultBootstrapContext createBootstrapContext() {
+      DefaultBootstrapContext bootstrapContext = new DefaultBootstrapContext();
+  
+      /*
+      	遍历从创建 SpringApplication 初始化的 bootstrapRegistryInitializers，调用它们的 initialize 方法
+      	初始化后的相关内容将会放到 BootstrapContext 对象中
+      */
+      this.bootstrapRegistryInitializers.forEach((initializer) -> initializer.initialize(bootstrapContext));
+  
+      // 返回初始化之后的 BootStrapContext
+      return bootstrapContext;
+  }
+  ```
+
+  
+
+- 获取所有的 `SpringApplicationRunListener` 实例对象
+
+  具体源代码如下所示：
+
+  ```java
+  // 获取所有的 SpringApplicationRunListener 实例对象
+  private SpringApplicationRunListeners getRunListeners(String[] args) {
+      Class<?>[] types = new Class<?>[] { SpringApplication.class, String[].class };
+  
+      return new SpringApplicationRunListeners(
+          logger, // logger 为 SpringApplication 类的静态变量，用于打印日志相关的信息
+          /** 
+          	获取所有的jar包依赖的META-INF/spring.factories的配置文件中有配置了
+          	"org.springframework.boot.SpringApplicationRunListener"的内容，并进行实例的初始化
+          */
+          getSpringFactoriesInstances(SpringApplicationRunListener.class, types, this, args),
+          this.applicationStartup // applicationStartup 默认为 DefaultApplicationStartup
+      ); 
+  }
+  ```
+
+- 通过 `SpringApplicationRunListener` 对象的 `starting`  方法启动所有的 `BootStrapContext`
+
+  具体源代码如下所示：
+
+  ```java
+  void starting(ConfigurableBootstrapContext bootstrapContext, Class<?> mainApplicationClass) {
+      doWithListeners(
+          "spring.boot.application.starting",
+          (listener) -> listener.starting(bootstrapContext),
+          (step) -> {
+              if (mainApplicationClass != null) {
+                  step.tag("mainApplicationClass", mainApplicationClass.getName());
+              }
+          });
+  }
+  
+  private void doWithListeners(
+      String stepName, 
+      Consumer<SpringApplicationRunListener> listenerAction,
+      Consumer<StartupStep> stepAction
+  ) {
+      StartupStep step = this.applicationStartup.start(stepName);
+      this.listeners.forEach(listenerAction);
+  
+      // eg1: stepAction != null
+      if (stepAction != null) {
+          stepAction.accept(step);
+      }
+      step.end();
+  }
+  ```
+
+- 解析命令行参数，将它们解析到 `ApplicationArguments` 对象中
+- 准备环境
+- 配置系统参数
+- 打印 `Banner`
+- 创建应用上下文
+- 准备应用上下文
+- 刷新应用上下文
+- 在刷新应用上下文之后进行后置处理
+- 启动 `SpringBoot` 的应用监听器
+- 调用所有的 `CommandRunner` 的 `run `
+- 调用 `SpringApplication` 的所有 `running` 方法
