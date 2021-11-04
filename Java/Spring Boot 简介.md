@@ -563,9 +563,10 @@ private <T> Collection<T> getSpringFactoriesInstances(Class<T> type, Class<?>[] 
   具体源代码如下所示：
 
   ```java
+  // 启动 BootStrapContext
   void starting(ConfigurableBootstrapContext bootstrapContext, Class<?> mainApplicationClass) {
       doWithListeners(
-          "spring.boot.application.starting",
+          "spring.boot.application.starting", 
           (listener) -> listener.starting(bootstrapContext),
           (step) -> {
               if (mainApplicationClass != null) {
@@ -579,25 +580,350 @@ private <T> Collection<T> getSpringFactoriesInstances(Class<T> type, Class<?>[] 
       Consumer<SpringApplicationRunListener> listenerAction,
       Consumer<StartupStep> stepAction
   ) {
+      /*
+      	applicationStartup 属性在  getRunListeners 方法调用时设置，默认为 DefaultApplicationStartup
+      */
       StartupStep step = this.applicationStartup.start(stepName);
+      /*
+      	对每个存在的 SpringApplicationRunListener 执行相同的函数处理
+      	
+      	listeners 属性字段同样在 getRunListeners 方法调用是初始化，
+      	从 spring.factories 文件中读取 SpringApplicationRunListener 对应的类并实例化到 listeners 中
+      */
       this.listeners.forEach(listenerAction);
   
-      // eg1: stepAction != null
       if (stepAction != null) {
-          stepAction.accept(step);
+          stepAction.accept(step); // 接收传入的参数，标记为一个步骤标签
       }
       step.end();
   }
   ```
 
 - 解析命令行参数，将它们解析到 `ApplicationArguments` 对象中
+
+  对应的源代码如下所示：
+
+  ```java
+  // 读取在启动 SpringApplication 时传入的参数 args，将这些参数进行解析
+  ApplicationArguments applicationArguments = new DefaultApplicationArguments(args);
+  ```
+
+  `DefaultApplicationArguments`的实例化源代码：
+
+  ```java
+  public DefaultApplicationArguments(String... args) {
+      Assert.notNull(args, "Args must not be null");
+      this.source = new Source(args); // 在实例化 Source 对象时会完成相关参数的解析
+      this.args = args;
+  }
+  ```
+
+  具体的参数解析是通过 `SimpleCommandLineArgsParser` 的 `parse(String ...args)` 方法来完成的，具体源代码如下所示：
+
+  ```java
+  public CommandLineArgs parse(String... args) {
+      CommandLineArgs commandLineArgs = new CommandLineArgs(); // 用于存储解析后的参数
+      for (String arg : args) {
+          if (arg.startsWith("--")) { // 以 -- 开头的参数为选项参数
+              String optionText = arg.substring(2);
+              String optionName;
+              String optionValue = null;
+              int indexOfEqualsSign = optionText.indexOf('=');
+              if (indexOfEqualsSign > -1) {
+                  optionName = optionText.substring(0, indexOfEqualsSign);
+                  optionValue = optionText.substring(indexOfEqualsSign + 1);
+              }
+              else {
+                  optionName = optionText;
+              }
+              if (optionName.isEmpty()) {
+                  throw new IllegalArgumentException("Invalid argument syntax: " + arg);
+              }
+              commandLineArgs.addOptionArg(optionName, optionValue);
+          }
+          else {
+              commandLineArgs.addNonOptionArg(arg);
+          }
+      }
+      return commandLineArgs;
+  }
+  ```
+
+  
+
 - 准备环境
+
+  具体的源代码如下所示：
+
+  ```java
+  private ConfigurableEnvironment prepareEnvironment(
+      SpringApplicationRunListeners listeners,
+      DefaultBootstrapContext bootstrapContext, 
+      ApplicationArguments applicationArguments
+  ) {
+      /*
+      	根据当前的 Spring 应用程序的类型，创建不同的配置环境，一般会创建 Spring Web 应用程序，
+      	因此创建的配置环境对象为 ApplicationServletEnvironment
+      */
+      ConfigurableEnvironment environment = getOrCreateEnvironment();
+  
+      /*
+      	通过上一步解析得到的命令行参数，配置 enviroment 对象
+      	然而，在一般情况下只是向 enviroment 对象中设置类型转换器
+      */
+      configureEnvironment(environment, applicationArguments.getSourceArgs());
+  
+      /*
+      	将 "configurationProperties" 插入或者更新到 environment 的 
+      	propertySources 的 propertySourceList 集合的第一个index中 
+      */
+      ConfigurationPropertySources.attach(environment);
+  
+      /** 
+      	遍历调用 SpringApplicationRunListener 的 environmentPrepared(...) 方法 
+      	这里在运行时的步骤名为 spring.boot.application.environment-prepared
+      **/
+      listeners.environmentPrepared(bootstrapContext, environment);
+  
+      /** 
+      	将环境信息设置到 MutablePropertySources propertySources 的最后 
+      **/
+      DefaultPropertiesPropertySource.moveToEnd(environment);
+  
+      Assert.state(!environment.containsProperty("spring.main.environment-prefix"),
+                   "Environment prefix cannot be set via properties.");
+  
+      /** 
+      	将环境绑定到SpringApplication 
+      */
+      bindToSpringApplication(environment);
+  
+      if (!this.isCustomEnvironment) {
+          /** 将环境封装为StandardEnvironment */
+          environment = new EnvironmentConverter(getClassLoader())
+              .convertEnvironmentIfNecessary(environment,
+                                             deduceEnvironmentClass());
+      }
+  
+      /** 执行绑定操作 */
+      ConfigurationPropertySources.attach(environment);
+  
+      return environment;
+  }
+  ```
+
+  
+
 - 配置系统参数
+
+  具体源代码如下所示：
+
+  ```java
+  // 配置系统参数 spring.beaninfo.ignore，这个配置表示是否跳过 java BeanInfo 的搜索
+  private void configureIgnoreBeanInfo(ConfigurableEnvironment environment) {
+      if (System.getProperty(CachedIntrospectionResults.IGNORE_BEANINFO_PROPERTY_NAME) == null) {
+          Boolean ignore = environment.getProperty("spring.beaninfo.ignore", Boolean.class, Boolean.TRUE);
+          System.setProperty(CachedIntrospectionResults.IGNORE_BEANINFO_PROPERTY_NAME, ignore.toString());
+      }
+  }
+  ```
+
+  
+
 - 打印 `Banner`
+
+  打印 Banner 主要有以下 3 种模式：
+
+  ```java
+  enum Mode {
+      OFF, // 禁止打印 Banner
+      CONSOLE, // 将 Banner 打印到控制台
+      LOG // 将 Banner 打印到日志文件
+  }
+  
+  // 具体可以通过创建的 SpringApplication 来设置打印模式
+  ```
+
+  获取文本 Banner 的源代码如下所示：
+
+  ```java
+  static final String BANNER_LOCATION_PROPERTY = "spring.banner.location"; // 文本 Banner 的位置
+  
+  static final String DEFAULT_BANNER_LOCATION = "banner.txt"; // 默认加载的 Banner 文件，位于 reources 目录下
+  
+  private Banner getTextBanner(Environment environment) {
+      String location = environment.getProperty(BANNER_LOCATION_PROPERTY, DEFAULT_BANNER_LOCATION);
+      Resource resource = this.resourceLoader.getResource(location);
+      try {
+          if (resource.exists() && !resource.getURL().toExternalForm().contains("liquibase-core")) {
+              return new ResourceBanner(resource);
+          }
+      }
+      catch (IOException ex) {
+          // Ignore
+      }
+      return null;
+  }
+  ```
+
+  因此如果想要自定义打印的 Banner 的话，可以在 `reources` 目录下添加 `banner.txt`，放入需要打印的 Banner 内容即可
+
+  具体的 Banner 生成器可以使用：https://devops.datenkollektiv.de/banner.txt/index.html
+
+
+
+分割线——————————————————————————————————————————
+
+上面的部分是初始的准备阶段，下面的部分是和应用上下文相关的部分，主要涉及到 `IOC` 的 `Bean` 装载等
+
 - 创建应用上下文
+
+  对应的源代码如下所示：
+
+  ```java
+  ApplicationContextFactory DEFAULT = (webApplicationType) -> {
+      try {
+          switch (webApplicationType) {
+              case SERVLET:
+                  // 一般是 Spring Web 应用，因此会选择实例化这个类
+                  return new AnnotationConfigServletWebServerApplicationContext();
+              case REACTIVE:
+                  return new AnnotationConfigReactiveWebServerApplicationContext();
+              default:
+                  return new AnnotationConfigApplicationContext();
+          }
+      }
+      catch (Exception ex) {
+          throw new IllegalStateException("Unable create a default ApplicationContext instance, "
+                                          + "you may need a custom ApplicationContextFactory", ex);
+      }
+  };
+  ```
+
+  - `AnnotationConfigServletWebServerApplicationContext` 对应的实例化源代码：
+
+    ```java
+    public AnnotationConfigServletWebServerApplicationContext() {
+        this.reader = new AnnotatedBeanDefinitionReader(this);
+        this.scanner = new ClassPathBeanDefinitionScanner(this);
+    }
+    ```
+
+    `AnnotatedBeanDefinitionReader` 对应的源代码
+
+    ```java
+    public AnnotatedBeanDefinitionReader(BeanDefinitionRegistry registry, Environment environment) {
+        // 省略一部分参数断言代码
+        this.registry = registry;
+        // 用于处理 @Conditional 注解修饰的 Bean
+        this.conditionEvaluator = new ConditionEvaluator(registry, environment, null);
+        // 在给定的 BeanDefinitionRegistry 中注册所有跟注解相关联的后置处理器
+        AnnotationConfigUtils.registerAnnotationConfigProcessors(this.registry);
+    }
+    ```
+
+    注册后置处理器的具体源代码：
+
+    ```java
+    public static Set<BeanDefinitionHolder> registerAnnotationConfigProcessors(
+    			BeanDefinitionRegistry registry, @Nullable Object source) {
+        DefaultListableBeanFactory beanFactory = unwrapDefaultListableBeanFactory(registry);
+        if (beanFactory != null) {
+            if (!(beanFactory.getDependencyComparator() instanceof AnnotationAwareOrderComparator)) {
+                beanFactory.setDependencyComparator(AnnotationAwareOrderComparator.INSTANCE); // 依赖注入的 Bean 优先级比较
+            }
+            if (!(beanFactory.getAutowireCandidateResolver() instanceof ContextAnnotationAutowireCandidateResolver)) {
+                beanFactory.setAutowireCandidateResolver(new ContextAnnotationAutowireCandidateResolver()); // @Autowire 注入时候选 Bean 的处理方案
+            }
+        }
+        // 省略一部分添加 BeanDefinitionHolder 的源代码
+        
+        return beanDefs;
+    }
+    ```
+
+  
+
 - 准备应用上下文
+
+  对应的源代码如下所示：
+
+  ```java
+  private void prepareContext(DefaultBootstrapContext bootstrapContext, ConfigurableApplicationContext context,
+                              ConfigurableEnvironment environment, SpringApplicationRunListeners listeners,
+                              ApplicationArguments applicationArguments, Banner printedBanner) {
+      /** 
+      	往IOC容器中，保存环境信息environment 
+      */
+      context.setEnvironment(environment);
+  
+      /** 
+      	IOC容器的后置处理流程 
+     	*/
+      postProcessApplicationContext(context);
+  
+      /** 
+      	应用初始化器
+      	这里是对在 实例化 SprinApplication 时加载的 ApplicationContextInitializer 执行 initialize 方法
+     	*/
+      applyInitializers(context);
+  
+      /** 
+      	遍历从 spring.factories 中加载的 SpringApplicationRunListener 的配置类，在上下文对象中执行 contextPrepared(...) 方法
+      */
+      listeners.contextPrepared(context);
+  
+      bootstrapContext.close(context);
+      if (this.logStartupInfo) {
+          logStartupInfo(context.getParent() == null);
+          logStartupProfileInfo(context);
+      }
+      // Add boot specific singleton beans
+      ConfigurableListableBeanFactory beanFactory = context.getBeanFactory();
+      beanFactory.registerSingleton("springApplicationArguments", applicationArguments);
+      if (printedBanner != null) {
+          beanFactory.registerSingleton("springBootBanner", printedBanner);
+      }
+      if (beanFactory instanceof DefaultListableBeanFactory) {
+          ((DefaultListableBeanFactory) beanFactory).setAllowBeanDefinitionOverriding(this.allowBeanDefinitionOverriding);
+      }
+      if (this.lazyInitialization) {
+          context.addBeanFactoryPostProcessor(new LazyInitializationBeanFactoryPostProcessor());
+      }
+      // Load the sources
+      Set<Object> sources = getAllSources();
+      Assert.notEmpty(sources, "Sources must not be empty");
+      load(context, sources.toArray(new Object[0]));
+  
+      /** 
+      	遍历调用 SpringApplicationRunListener 的 contextPrepared(...) 方法 
+      */
+      listeners.contextLoaded(context);
+  }
+  ```
+
+  
+
 - 刷新应用上下文
+
+  这一部分的源代码对应如下：
+
+  ```java
+  private void refreshContext(ConfigurableApplicationContext context) {
+      if (this.registerShutdownHook) {
+          shutdownHook.registerApplicationContext(context);
+      }
+      /** Spring IOC核心的初始化过程 */
+      refresh(context);
+  }
+  ```
+
+  
+
 - 在刷新应用上下文之后进行后置处理
+
 - 启动 `SpringBoot` 的应用监听器
+
 - 调用所有的 `CommandRunner` 的 `run `
+
 - 调用 `SpringApplication` 的所有 `running` 方法
