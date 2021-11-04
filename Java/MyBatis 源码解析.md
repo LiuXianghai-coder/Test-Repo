@@ -1,3 +1,7 @@
+**源码解析针对的是 `MyBatis` 3.4.4**
+
+
+
 ## MyBatis 执行流程
 
 ### 第一阶段
@@ -347,6 +351,7 @@ public Object getNamedParams(Object[] args) {
 主要需要关注的地方是 `MapperStatement` 中对于 `BoundSql`实例对象的处理：
 
 ```java
+// BoundSql 是为了将 Mapper XML 中的参数进行转化，即原来为参数的地方要转换为 '?' 以及其对应位置的对应参数映射信息等
 public BoundSql getBoundSql(Object parameterObject) {
     // 这里的 BoundSql 对象来自 RawSqlSource
     BoundSql boundSql = sqlSource.getBoundSql(parameterObject);
@@ -387,7 +392,7 @@ public BoundSql getBoundSql(Object parameterObject) {
 
   由于二级缓存实在 Mapper XML 映射文件中开启的，因此它只能针对特定的 Mapper。
 
-  在执行查询时，首先会检测是否存在二级缓存，如果存在，那么就需要进一步地检测这个二级缓存是否是有效的；如果这个二级缓存是有效的，那么将会从二级缓存中进行读取数据，如果读取不到那么将会直接进行数据库的查询；如果这个二级缓存不是有效的，那么将会首先清洗二级缓存，再从数据库中读取，再添加到二级缓存中。
+  在执行查询时，首先会检测是否存在二级缓存，如果存在，那么就需要进一步地检测这个二级缓存是否是有效的；如果这个二级缓存是有效的，那么将会从二级缓存中进行读取数据，如果读取不到那么将会直接进行数据库的查询；如果这个二级缓存不是有效的，那么将会首先清除二级缓存，再从数据库中读取，再添加到二级缓存中。
 
   对应的源代码如下所示：
 
@@ -479,9 +484,416 @@ public BoundSql getBoundSql(Object parameterObject) {
 
 ### 第五阶段
 
-这个阶段的任务是真正执行 `SQL` 
+这个阶段的任务是预执行 `SQL`，然后设置相关的参数，执行相关的 `SQL` 语句
 
 ![MyBatis.png](https://i.loli.net/2021/10/25/vm6GiKxrysE4jJ5.png)
 
+- `SQL` 的预处理
+
+  调用链为 `SimpleExecutor` ——> `PreparedStatementHandler` ——> `BaseStatementHandler` ——>  `PreparedStatementHandler`
+
+  对应的源代码如下所示：
+
+  ```java
+  @Override
+  protected Statement instantiateStatement(Connection connection) throws SQLException {
+      // 这里的 SQL 是经过参数映射转换的，即有参数的地方已经转换为了 '?'
+      String sql = boundSql.getSql();
+  
+      if (mappedStatement.getKeyGenerator() instanceof Jdbc3KeyGenerator) {
+          String[] keyColumnNames = mappedStatement.getKeyColumns();
+          if (keyColumnNames == null) {
+              return connection.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS);
+          } else {
+              return connection.prepareStatement(sql, keyColumnNames);
+          }
+      } else if (mappedStatement.getResultSetType() != null) {
+          return connection.prepareStatement(sql, mappedStatement.getResultSetType().getValue(),
+                                             ResultSet.CONCUR_READ_ONLY);
+      } else {
+          // 预执行 SQL 语句
+          return connection.prepareStatement(sql);
+      }
+  }
+  ```
+
+  除了预处理 `SQL` 之外，在这个过程中还会设置 `SQL` 语句的最大执行时间和要获取的数据行的个数等信息（分页的操作就在这里处理）
+
+
+
+- 对预处理的  `SQL` 设置对应的参数
+
+  通过对 `SQL` 的预处理，下一步就是设置对应的参数，设置了参数之后的 `SQL` 就可以直接被执行
+
+  具体设置参数的源代码如下所示：
+
+  ```java
+  // 设置参数的工作是由 DefaultParameterHandler 类进行处理的
+  public void setParameters(PreparedStatement ps) {
+      ErrorContext.instance().activity("setting parameters").object(mappedStatement.getParameterMap().getId());
+      
+      // 之前在实例化 BoundSql 的过程中已经设置了相关的参数映射关系
+      List<ParameterMapping> parameterMappings = boundSql.getParameterMappings();
+      if (parameterMappings != null) {
+          // 遍历这个参数映射集合，将对应的参数放到正确的位置上
+          for (int i = 0; i < parameterMappings.size(); i++) {
+              ParameterMapping parameterMapping = parameterMappings.get(i);
+              // eg1: parameterMapping.getMode() = IN
+              if (parameterMapping.getMode() != ParameterMode.OUT) {
+                  // 从传入的参数中获取值
+                  Object value;
+                  String propertyName = parameterMapping.getProperty();
+                  if (boundSql.hasAdditionalParameter(propertyName)) { // issue #448 ask first for additional params
+                      value = boundSql.getAdditionalParameter(propertyName);
+                  } else if (parameterObject == null) {
+                      value = null;
+                  } else if (typeHandlerRegistry.hasTypeHandler(parameterObject.getClass())) {
+                      // 对于一般的基本数据类型的装箱类，都有对应的 typeHandler
+                      value = parameterObject;
+                  } else {
+                      // 传入的是一个实体对象，那么需要通过反射的方式从这个对象中获取对应的属性值
+                      MetaObject metaObject = configuration.newMetaObject(parameterObject);
+                      value = metaObject.getValue(propertyName);
+                  }
+                  // 从参数对象中获取值的过程结束。。。。。。
+                  
+                  // 将数据库表中列的类型与对象属性字段的类型对应起来
+                  TypeHandler typeHandler = parameterMapping.getTypeHandler();
+                  JdbcType jdbcType = parameterMapping.getJdbcType();
+                  if (value == null && jdbcType == null) {
+                      jdbcType = configuration.getJdbcTypeForNull();
+                  }
+                  // 对应阶段结束
+                  
+                  // 针对预处理语句和得到的参数值，设置对应的 SQL 语句的实际参数
+                  typeHandler.setParameter(ps, i + 1, value, jdbcType);
+              }
+          }
+      }
+  }
+  ```
+
+  
+
+- 执行 `SQL`
+
+  通过上面的步骤，现在已经得到了一个可以执行的 `SQL`，这一步的主要任务是执行这个 `SQL`，同时将得到的结果进行包装
+
+  对应的源代码如下：
+
+  ```java
+  // 这里的任务是通过 PreparedStatementHandler 对象来完成的
+  public <E> List<E> query(Statement statement, ResultHandler resultHandler) throws SQLException {
+      // 调用 JDBC 的 PreparedStatement 去执行 SQL
+      PreparedStatement ps = (PreparedStatement) statement;
+  
+      // 执行这个 SQL
+      ps.execute();
+  
+      /** 将结果集进行封装 */
+      return resultSetHandler.handleResultSets(ps);
+  }
+  ```
+
+
+
+在执行完 `SQL` 之后，将会删除旧的缓存，将这次从数据库中查找得到的数据保存到缓存（一级缓存）中
+
+
+
 ### 第六阶段
+
+以查询数据为例，会调用 `DefaultResultSetHandler` 对象的 `handleResultSets` 方法来进行结果集的处理。
+
+1. 调用 `getFirstResultSet` 方法，获取执行之后的结果集，并且封装到 `ResultSetWrapper` 对象中，对应的源代码如下所示：
+
+   ```java
+   private ResultSetWrapper getFirstResultSet(Statement stmt) throws SQLException {
+       /** 通过JDBC获得结果集ResultSet */
+       ResultSet rs = stmt.getResultSet();
+       while (rs == null) {
+           if (stmt.getMoreResults()) {
+               rs = stmt.getResultSet();
+           } else {
+               /**
+               * getUpdateCount()==-1,既不是结果集,又不是更新计数了.说明没的返回了。
+               * 如果getUpdateCount()>=0,则说明当前指针是更新计数(0的时候有可能是DDL指令)。
+               * 无论是返回结果集或是更新计数,那么则可能还继续有其它返回。
+               * 只有在当前指指针getResultSet()==null && getUpdateCount()==-1才说明没有再多的返回。
+               */
+               if (stmt.getUpdateCount() == -1) {
+                   // no more results. Must be no resultset
+                   break;
+               }
+           }
+       }
+       
+       /** 将结果集ResultSet封装到ResultSetWrapper实例中 */
+       return rs != null ? new ResultSetWrapper(rs, configuration) : null;
+   }
+   ```
+
+   
+
+2. 从 `MappeedStatement` 对象中获取 `ResultMap` 列表（还记得 Mapper XML 中配置的 `resultMap` 吗？）
+
+3. 遍历 `ResultMap` 集合，针对每个 `ResultMap` 对象进行相应的处理，对应的源代码如下所示：
+
+   ```java
+   final List<Object> multipleResults = new ArrayList<>(); // 存储 ResultMap
+   int resultSetCount = 0;
+   // 从 MappedStatement 对象中获取对应的 ResultMap 列表
+   List<ResultMap> resultMaps = mappedStatement.getResultMaps();
+   int resultMapCount = resultMaps.size();
+   while (rsw != null && resultMapCount > resultSetCount) {
+       // 遍历每个 ResultMap 对象
+       ResultMap resultMap = resultMaps.get(resultSetCount);
+   
+       /** 处理结果集, 存储在 multipleResults 中 */
+       handleResultSet(rsw, resultMap, multipleResults, null);
+       
+       // 通过游标的方式获取下一条数据
+       rsw = getNextResultSet(stmt);
+   
+       cleanUpAfterHandlingResultSet();
+       resultSetCount++;
+   }
+   ```
+
+   
+
+4. 第三步的主要任务是处理结果集，对应的源代码如下所示：
+
+   ```java
+   // 此方法位于 DefaultResultSetHandler 对象中
+   private void handleResultSet(ResultSetWrapper rsw, ResultMap resultMap, List<Object> multipleResults,
+                                ResultMapping parentMapping) throws SQLException {
+       try {
+           if (parentMapping != null) {
+               handleRowValues(rsw, resultMap, null, RowBounds.DEFAULT, parentMapping);
+           } else {
+               if (resultHandler == null) {
+                   /** 初始化ResultHandler实例，用于解析查询结果并存储于该实例对象中 */
+                   DefaultResultHandler defaultResultHandler = new DefaultResultHandler(objectFactory);
+                   /** 解析行数据 */
+                   handleRowValues(rsw, resultMap, defaultResultHandler, rowBounds, null);
+                   multipleResults.add(defaultResultHandler.getResultList());
+               } else {
+                   handleRowValues(rsw, resultMap, resultHandler, rowBounds, null);
+               }
+           }
+       } finally {
+           /** 关闭ResultSet */
+           closeResultSet(rsw.getResultSet());
+       }
+   }
+   ```
+
+   最终都会调用 `DefaultResultSetHandler` 的 `handleRowValues` 方法，对指定的行数据进行处理
+
+5. 这一步的任务主要是针对不同的返回结果进行一个选择，针对不同的返回结果进行处理
+
+   ```java
+   public void handleRowValues(ResultSetWrapper rsw, ResultMap resultMap, ResultHandler<?> resultHandler,
+                               RowBounds rowBounds, ResultMapping parentMapping) throws SQLException {
+       /** 是否是聚合Nested类型的结果集 */
+       if (resultMap.hasNestedResultMaps()) {
+           ensureNoRowBounds();
+           checkResultHandler();
+           // 针对 NestedResultMap 的结果进行处理
+           handleRowValuesForNestedResultMap(rsw, resultMap, resultHandler, rowBounds, parentMapping);
+       } else {
+           // 针对 SimpleResultMap进行处理
+           handleRowValuesForSimpleResultMap(rsw, resultMap, resultHandler, rowBounds, parentMapping);
+       }
+   }
+   ```
+
+   这里以简单查询为例，因此最终会执行 `handleRowValuesForSimpleResultMap`方法
+
+6. 这一步的主要任务是处理行数据，对应的源代码如下所示
+
+   ```java
+   private void handleRowValuesForSimpleResultMap(ResultSetWrapper rsw, ResultMap resultMap,
+                                                  ResultHandler<?> resultHandler, RowBounds rowBounds,
+                                                  ResultMapping parentMapping) throws SQLException {
+       DefaultResultContext<Object> resultContext = new DefaultResultContext<>();
+   
+       /**
+       	将指针移动到rowBounds.getOffset()指定的行号，即：略过（skip）offset之前的行 
+       */
+       skipRows(rsw.getResultSet(), rowBounds);
+   
+       while (shouldProcessMoreRows(resultContext, rowBounds) && rsw.getResultSet().next()) {
+           /** 
+           	解析结果集中的鉴别器<discriminate/>，即鉴别器
+           	这个一般来讲不会遇到，因此一般为 null
+           */
+           ResultMap discriminatedResultMap = resolveDiscriminatedResultMap(rsw.getResultSet(), resultMap, null);
+   
+           /** 
+           	将数据库操作结果保存到POJO并返回，这里是真正处理数据的地方
+           */
+           Object rowValue = getRowValue(rsw, discriminatedResultMap);
+   
+           /**
+           	存储POJO对象到DefaultResultHandler中 
+           */
+           storeObject(resultHandler, resultContext, rowValue, parentMapping, rsw.getResultSet());
+       }
+   }
+   ```
+
+   - `getRowValue`，对应的源代码如下：
+
+     ```java
+     /**
+     * 将数据库操作结果保存到 POJO 并返回
+     */
+     private Object getRowValue(ResultSetWrapper rsw, ResultMap resultMap) throws SQLException {
+         final ResultLoaderMap lazyLoader = new ResultLoaderMap();
+         /** 创建空的结果对象 */
+         Object rowValue = createResultObject(rsw, resultMap, lazyLoader, null);
+         
+         /*
+         	对这个返回结果执行对应的 typeHandler；如果这个 resultType 不存在 typeHandler，则直接返回原来的对象
+         */
+         if (rowValue != null && !hasTypeHandlerForResultObject(rsw, resultMap.getType())) {
+             /** 
+             	创建rowValue的metaObject 
+             */
+             final MetaObject metaObject = configuration.newMetaObject(rowValue);
+     
+             boolean foundValues = this.useConstructorMappings;
+     
+             /** 是否应用自动映射 */
+             if (shouldApplyAutomaticMappings(resultMap, false)) {
+                 /**
+                 * 将查询出来的值赋值给metaObject中的POJO对象
+                 */
+                 foundValues = applyAutomaticMappings(rsw, resultMap, metaObject, null) || foundValues;
+             }
+     
+             foundValues = applyPropertyMappings(rsw, resultMap, metaObject, lazyLoader, null) || foundValues;
+     
+             foundValues = lazyLoader.size() > 0 || foundValues;
+             
+             /** 
+             	configuration.isReturnInstanceForEmptyRow() 当返回行的所有列都是空时，MyBatis默认返回null。
+             	当开启这个设置时，MyBatis会返回一个空实例。
+             */
+             rowValue = (foundValues || configuration.isReturnInstanceForEmptyRow()) ? rowValue : null;
+         }
+         return rowValue;
+     }
+     ```
+
+     其中，最主要的两部分是调用`createResultObject`方法创建一个结果对象和调用 `applyAutomaticMappings` 方法将查询到的数据赋值到创建的结果对象中。
+
+     - `createResultObject` 的源代码如下：
+
+       ```java
+       private Object createResultObject(ResultSetWrapper rsw, ResultMap resultMap, ResultLoaderMap lazyLoader,
+                                         String columnPrefix) throws SQLException {
+           this.useConstructorMappings = false; // 重置原来的映射关系
+           final List<Class<?>> constructorArgTypes = new ArrayList<>();
+           final List<Object> constructorArgs = new ArrayList<>();
+       
+           /**
+           	创建一个空的resultMap.getType()类型的实例对象 
+           */
+           Object resultObject = createResultObject(rsw, resultMap, constructorArgTypes, constructorArgs, columnPrefix);
+       
+           /** 
+           	判断resultMap.getType() 是否存在TypeHandler
+           */
+           if (resultObject != null && !hasTypeHandlerForResultObject(rsw, resultMap.getType())) {
+               final List<ResultMapping> propertyMappings = resultMap.getPropertyResultMappings();
+       
+               for (ResultMapping propertyMapping : propertyMappings) {
+                   /** 
+                   	如果是聚合查询并且配置了懒加载 
+                   */
+                   if (propertyMapping.getNestedQueryId() != null && propertyMapping.isLazy()) {
+                       resultObject = configuration.getProxyFactory()
+                           .createProxy(resultObject, lazyLoader, configuration,
+                                        objectFactory, constructorArgTypes, constructorArgs);
+                       break;
+                   }
+               }
+           }
+           
+           this.useConstructorMappings = (resultObject != null && !constructorArgTypes.isEmpty());
+       
+           return resultObject;
+       }
+       ```
+
+       
+
+     - `applyAutomaticMappings` 的源代码如下所示：
+
+       ```java
+       private boolean applyAutomaticMappings(ResultSetWrapper rsw, ResultMap resultMap, MetaObject metaObject,
+                                              String columnPrefix) throws SQLException {
+           /** 
+           	创建自动映射集合 
+           */
+           List<UnMappedColumnAutoMapping> autoMapping = createAutomaticMappings(rsw, resultMap, metaObject, columnPrefix);
+           boolean foundValues = false;
+           
+           if (autoMapping.size() > 0) {
+               // 遍历这些映射的对象，从对应的列中获取数据
+               for (UnMappedColumnAutoMapping mapping : autoMapping) {
+                   final Object value = mapping.typeHandler.getResult(rsw.getResultSet(), mapping.column);
+                   if (value != null) {
+                       foundValues = true;
+                   }
+                   
+                   if (value != null || (configuration.isCallSettersOnNulls() && !mapping.primitive)) {
+                       // 将查询到的数据放到对应的属性中
+                       metaObject.setValue(mapping.property, value);
+                   }
+               }
+           }
+           return foundValues;
+       }
+       ```
+
+       `UnMappedColumnAutoMapping` 类定义如下：
+
+       ```java
+       private static class UnMappedColumnAutoMapping {
+           private final String column;
+           private final String property;
+           private final TypeHandler<?> typeHandler;
+           private final boolean primitive;
+       
+           public UnMappedColumnAutoMapping(String column, String property, TypeHandler<?> typeHandler,
+                                            boolean primitive) {
+               this.column = column;
+               this.property = property;
+               this.typeHandler = typeHandler;
+               this.primitive = primitive;
+           }
+       }
+       ```
+
+       
+
+   - `storeObject`，主要的任务是将查询到的 POJO 对象存储到 `ResultHandler`对象中（这里是 `DefaultResultHandler`）
+
+     ```java
+     private void storeObject(ResultHandler<?> resultHandler, DefaultResultContext<Object> resultContext,
+                              Object rowValue, ResultMapping parentMapping, ResultSet rs) throws SQLException {
+         if (parentMapping != null) {
+             linkToParents(rs, parentMapping, rowValue);
+         } else {
+             /** 将结果存储到DefaultResultHandler中 */
+             callResultHandler(resultHandler, resultContext, rowValue);
+         }
+     }
+     ```
+
+     
 
