@@ -913,7 +913,9 @@ private <T> Collection<T> getSpringFactoriesInstances(Class<T> type, Class<?>[] 
       if (this.registerShutdownHook) {
           shutdownHook.registerApplicationContext(context);
       }
-      /** Spring IOC核心的初始化过程 */
+      /** 
+      	Spring IOC核心的初始化过程，这里的任务是交给 Spring 来完成的
+      */
       refresh(context);
   }
   ```
@@ -922,8 +924,62 @@ private <T> Collection<T> getSpringFactoriesInstances(Class<T> type, Class<?>[] 
 
 - 在刷新应用上下文之后进行后置处理
 
+  这里的对应的源代码的方法体是一个空的方法体，因此在这个过程中什么也不会做
+
+  
+
 - 启动 `SpringBoot` 的应用监听器
+
+  在 Spring 上下文对象中调用 `SpringApplicationRunListeners` 的 `start` 方法，具体的实现与在 `BootStrapContext`  上下文中调用 `start` 方法一致
+
+———————————————— Spring 上下文对象初始化结束 ————————————————————————
+
+
 
 - 调用所有的 `CommandRunner` 的 `run `
 
+  这里的主要任务是调用所有的 `CommandLineRunner` 对象的 `run(....)` 方法，具体的源代码如下所示：
+
+  ```java
+  private void callRunners(ApplicationContext context, ApplicationArguments args) {
+      List<Object> runners = new ArrayList<>();
+      /** 
+      	获取容器中的ApplicationRunner，放入到runners中 
+      */
+      runners.addAll(context.getBeansOfType(ApplicationRunner.class).values());
+  
+      /** 
+      	获取容器中的CommandLineRunner，放入到runners中 
+      */
+      runners.addAll(context.getBeansOfType(CommandLineRunner.class).values());
+  
+      /** 
+      	对 runners 集合根据 @Order 进行排序 
+      */
+      AnnotationAwareOrderComparator.sort(runners);
+  
+      /** 
+      	根据不同的Runner类型，调用对应的run方法 
+      */
+      for (Object runner : new LinkedHashSet<>(runners)) {
+          if (runner instanceof ApplicationRunner) {
+              callRunner((ApplicationRunner) runner, args);
+          }
+          if (runner instanceof CommandLineRunner) {
+              callRunner((CommandLineRunner) runner, args);
+          }
+      }
+  }
+  ```
+
+  
+
 - 调用 `SpringApplication` 的所有 `running` 方法
+
+  在 Spring 上下文对象中调用 `SpringApplicationRunListeners` 的 `running` 方法，与 `start`  方法类似
+
+
+
+`run` 方法的大致流程如下所示：
+
+![run.png](https://i.loli.net/2021/11/05/C8F4BG26kR3IMf1.png)
