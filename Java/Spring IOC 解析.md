@@ -440,6 +440,111 @@ public interface BeanDefinition extends AttributeAccessor, BeanMetadataElement {
 
   可以看到，`DefaultListableBeanFactory` 不仅继承了 `ConfigurableListableBeanFactory`，也继承了 `AbstractAutowireCapableBeanFactory`，因此能够做更多的工作
 
+  
+
+  - `customizeBeanFactory(beanFactory)`
+
+    这个方法的主要作用就是配置是否允许 `BeanDefinition` 覆盖、是否允许循环引用
+
+    ```java
+    protected void customizeBeanFactory(DefaultListableBeanFactory beanFactory) {
+        if (this.allowBeanDefinitionOverriding != null) {
+            // 设置是否允许覆盖
+            beanFactory.setAllowBeanDefinitionOverriding(this.allowBeanDefinitionOverriding);
+        }
+        if (this.allowCircularReferences != null) {
+            // 设置是否允许循环引用
+            beanFactory.setAllowCircularReferences(this.allowCircularReferences);
+        }
+    }
+    ```
+
+    在配置文件中定义 Bean 时，如果使用了相同的 id 或 name，默认情况下，由于 `allowBeanDefinitionOverriding` 属性为 `null`，因此会抛出异常，如果在不同的配置文件中定义了 Bean，那么就会发生 Bean 的覆盖
+
+    
+
+  - ` loadBeanDefinitions(beanFactory)`
+
+    这个方法的主要任务是加载配置文件中的 Bean 到 BeanFactory
+
+    首先，需要进行配置文件的读取，具体在 `org.springframework.context.support.AbstractXmlApplicationContext` 中 `loadBeanDefinitions(factory)` 方法中完成：
+
+    ```java
+    protected void loadBeanDefinitions(DefaultListableBeanFactory beanFactory) 
+        throws BeansException, IOException {
+        // 通过给定的 BeanFactory 实例，创建一个新的 XmlBeanDefinitionReader 实例对象
+        XmlBeanDefinitionReader beanDefinitionReader = new XmlBeanDefinitionReader(beanFactory);
+    
+        // 加载一些相关的配置
+        beanDefinitionReader.setEnvironment(this.getEnvironment());
+        beanDefinitionReader.setResourceLoader(this);
+        beanDefinitionReader.setEntityResolver(new ResourceEntityResolver(this));
+    
+        initBeanDefinitionReader(beanDefinitionReader);
+        // 主要的 Bean 加载任务在此处进行
+        loadBeanDefinitions(beanDefinitionReader);
+    }
+    ```
+
+    `org.springframework.context.support.AbstractXmlApplicationContext` 的 `loadBeanDefinitions(beanDefinitionReader)`：
+
+    ```java
+    protected void loadBeanDefinitions(XmlBeanDefinitionReader reader) 
+        throws BeansException, IOException {
+        Resource[] configResources = getConfigResources(); // 获取资源的配置信息
+        if (configResources != null) {
+            reader.loadBeanDefinitions(configResources);
+        }
+        String[] configLocations = getConfigLocations();
+        if (configLocations != null) {
+            reader.loadBeanDefinitions(configLocations);
+        }
+    }
+    
+    public int loadBeanDefinitions(Resource... resources) 
+        throws BeanDefinitionStoreException {
+        Assert.notNull(resources, "Resource array must not be null");
+        int count = 0;
+        // 加载每个资源文件，解析每个资源文件中的 Bean
+        for (Resource resource : resources) {
+            // 当前环境下的方法对应 org.springframework.beans.factory.xml.XmlBeanDefinitionReader 中的方法
+            count += loadBeanDefinitions(resource); 
+        }
+        return count; // 加载的 Bean 的数量
+    }
+    
+    
+    ```
+
+    `org.springframework.beans.factory.xml.XmlBeanDefinitionReader` 的 `loadBeanDefinitions(resource)`：
+
+    ```java
+    public int loadBeanDefinitions(Resource resource) throws BeanDefinitionStoreException {
+        return loadBeanDefinitions(new EncodedResource(resource));
+    }
+    
+    public int loadBeanDefinitions(EncodedResource encodedResource) throws BeanDefinitionStoreException {
+        // 省略一部分断言和日志打印代码
+        
+        // 使用 ThreadLocal 来放配置资源文件
+        Set<EncodedResource> currentResources = this.resourcesCurrentlyBeingLoaded.get();
+    
+        try (InputStream inputStream = encodedResource.getResource().getInputStream()) {
+            InputSource inputSource = new InputSource(inputStream);
+            if (encodedResource.getEncoding() != null) {
+                inputSource.setEncoding(encodedResource.getEncoding());
+            }
+            
+            // 核心部分在这里
+            return doLoadBeanDefinitions(inputSource, encodedResource.getResource());
+        }
+        
+        // 省略一部分异常检查和资源关闭的代码
+    }
+    ```
+
+    
+
 - 
 
 
