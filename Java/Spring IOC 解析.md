@@ -1537,5 +1537,109 @@ protected Object doCreateBean(
 
 - 属性装配
 
+  `populateBean(beanName, mbd, instanceWrapper)`
+
+  ```java
+  // 将相关的实例的属性值注入到实例对象的对应属性
+  protected void populateBean(
+      String beanName, 
+      RootBeanDefinition mbd, 
+      @Nullable BeanWrapper bw
+  ) {
+      // 省略一部分参数检测代码
+      
+      /*
+      	Bean 已经被实例化，但是还没有被设置属性值，在这里可以对赋值之前做一些额外的操作
+      	InstantiationAwareBeanPostProcessor 类型的实例对象可以在这里对 Bean 进行一些相关的操作
+      */
+      if (!mbd.isSynthetic() && hasInstantiationAwareBeanPostProcessors()) {
+          for (InstantiationAwareBeanPostProcessor bp : getBeanPostProcessorCache().instantiationAware) {
+              if (!bp.postProcessAfterInstantiation(bw.getWrappedInstance(), beanName)) {
+                  return;
+              }
+          }
+      }
+  
+      PropertyValues pvs = (mbd.hasPropertyValues() ? mbd.getPropertyValues() : null);
+  
+      int resolvedAutowireMode = mbd.getResolvedAutowireMode();
+      if (resolvedAutowireMode == AUTOWIRE_BY_NAME || resolvedAutowireMode == AUTOWIRE_BY_TYPE) {
+          MutablePropertyValues newPvs = new MutablePropertyValues(pvs);
+          /*
+          	如果是通过 BeanName 的方式来实现注入，那么首先根据 BeanName 找到 Bean 并实例化这个 Bean，
+          	再注入当前的 Bean 中
+          */
+          if (resolvedAutowireMode == AUTOWIRE_BY_NAME) {
+              autowireByName(beanName, mbd, bw, newPvs);
+          }
+          /*
+          	如果是按照 Bean 的类型来注入，要做更多的工作
+          */
+          if (resolvedAutowireMode == AUTOWIRE_BY_TYPE) {
+              autowireByType(beanName, mbd, bw, newPvs);
+          }
+          pvs = newPvs;
+      }
+      
+      // 省略一部分不太重要的代码
+  
+      if (pvs != null) {
+          applyPropertyValues(beanName, mbd, bw, pvs); // 将得到的属性值再设置到 Bean 实例中
+      }
+  }
+  ```
+
+  
+
 - `initializeBean`
 
+  `initializeBean(beanName, exposedObject, mbd)`
+
+  位于 `org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory`
+
+  ```java
+  protected Object initializeBean(String beanName, Object bean, @Nullable RootBeanDefinition mbd) {
+      // 省略一部分代码
+      
+      /*
+      	如果这个 Bean 实现了 BeanNameAware、BeanClassLoaderAware、BeanFactoryAware 接口，
+      	则将执行对应的回调方法
+      */
+      invokeAwareMethods(beanName, bean);
+  
+      Object wrappedBean = bean;
+      if (mbd == null || !mbd.isSynthetic()) {
+          /*
+          	记得在实例化之前的 registerBeanPostProcessors(beanFactory) 吗？
+          	在这里将会执行所有的 BeanPostProcessor 的 postProcessBeforeInitialization(bean, beanName) 方法
+          */
+          wrappedBean = applyBeanPostProcessorsBeforeInitialization(wrappedBean, beanName);
+      }
+  
+      try {
+          /*
+          	如果对 Bean 定义了 init-method 方法，将会在这里执行
+          	如果 Bean 实现了 InitializingBean 接口，那么在这里也会调用 afterPropertiesSet() 方法
+           */
+          invokeInitMethods(beanName, wrappedBean, mbd);
+      }
+      // 省略一部分异常捕获代码
+      
+      if (mbd == null || !mbd.isSynthetic()) {
+          /*
+          	在这里就会执行所有的 BeanPostProcessor 的 postProcessAfterInitialization(bean, beanName) 方法
+          */
+          wrappedBean = applyBeanPostProcessorsAfterInitialization(wrappedBean, beanName);
+      }
+  
+      return wrappedBean;
+  }
+  ```
+
+
+
+
+
+参考：
+
+<sup>[1]</sup> https://javadoop.com/post/spring-ioc
