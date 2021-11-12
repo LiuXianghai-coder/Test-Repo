@@ -369,16 +369,47 @@ public aspect UserAccountAspect {
 在项目的 `resources` 目录下的 `META-INF`目录（如果没有就创建一个）中，添加一个 `aop.xml` 文件，具体内容如下所示：
 
 ```xml
-<!DOCTYPE aspectj PUBLIC "-//AspectJ//DTD//EN" "http://www.eclipse.org/aspectj/dtd/aspectj.dtd">
+<!DOCTYPE aspectj
+        PUBLIC "-//AspectJ//DTD//EN"
+        "http://www.eclipse.org/aspectj/dtd/aspectj.dtd">
 <aspectj>
     <aspects>
-        <aspect name="com.javadoop.aspectjlearning.aspect.ProfilingAspect"/>
-        <weaver options="-verbose -showWeaveInfo">
-            <include within="com.javadoop.aspectjlearning..*"/>
-        </weaver>
+        <!-- 使用加载时织入的方式只能通过定义具体的 Aspect 类来实现，因为 AspectJ 无法被 javac 编译 -->
+        <aspect name="org.xhliu.aop.entity.UserAspect"/>
+
+        <!-- 要监听的切点所在的包位置，即要执行对应切面方法的位置 -->
+        <include within="org.xhliu.aop.entity..*"/>
     </aspects>
 </aspectj>
 ```
 
+查看监听的 `main` 方法所在的类，类似下图所示：
+
+![2021-11-12 23-05-51 的屏幕截图.png](https://i.loli.net/2021/11/12/yCEFfo12eRLQJuB.png)
+
+与编译时织入和编译后织入不同，加载时织入不会修改原有的 `.class` 文件
 
 
+
+在运行时需要添加相关的代理参数类来实现加载时的织入，具体的参数如下所所示：
+
+```shell
+# 注意将 -javaagent 对应的代理类修改为本地 maven 仓库对应的
+java -javaagent:/home/lxh/.m2/repository/org/aspectj/aspectjweaver/1.9.7/aspectjweaver-1.9.7.jar -jar target/spring-aop-1.0-SNAPSHOT-jar-with-dependencies.jar
+```
+
+
+
+具体的输出如下所示：
+
+![2021-11-12 23-10-08 的屏幕截图.png](https://i.loli.net/2021/11/12/Y8blq4aJKmgFUSo.png)
+
+
+
+
+
+具体的项目地址：https://github.com/LiuXianghai-coder/Spring-Study
+
+
+
+参考：https://javadoop.com/post/aspectj
