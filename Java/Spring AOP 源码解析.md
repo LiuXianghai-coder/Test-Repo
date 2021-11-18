@@ -16,17 +16,11 @@ AOP 即面向切面编程，在前文已经有所介绍，具体的实现方式�
 
 
 
-首先回忆一下 Spring IOC 中创建 Bean 的基本流程：
+首先回忆一下 Spring IOC 中实例化 Bean 的基本流程：
 
 <img src="https://i.loli.net/2021/11/08/JvYUES3pWuco9VB.png" />
 
-分析一下实例化 Bean 的流程，可以简单地推断一下 Spring AOP 的实现是基于 `BeanPostProcessor` 来实现的
-
-
-
-## IOC 对于 AOP 实例的管理
-
-
+分析一下实例化 Bean 的流程，可以简单地猜想一下 Spring AOP 的是否是基于 `BeanPostProcessor` 来实现的？
 
 
 
@@ -253,9 +247,7 @@ public ProxyCreatorSupport() {
 }
 ```
 
-
-
-具体创建 Proxy 对象的源代码：
+`createAopProxy(this)` 方法对应的源代码：
 
 ```java
 // 该源代码位于 org.springframework.aop.framework.DefaultAopProxyFactory 中
@@ -414,6 +406,12 @@ public Object getProxy(@Nullable ClassLoader classLoader) {
 
 
 
+通过以上两种方式来代理原有的目标 Bean，相当于在原来定义的 Bean 的方法中添加了额外的操作生成了对应的代理对象，而原来定义的 Bean 实例对象则被放入代理对象中。
+
+现在，原来指定的 `BeanName` 将会指向代理类实例而不是原来的 Bean 实例。
+
+
+
 ## 基于 Advisor 的 AOP
 
 基于 `Advisor` 的 AOP 会首先定义一些 `Advisor` 类型的 Bean，常见的 `Advisor` 具体类的类结构图如下所示：
@@ -500,9 +498,10 @@ public static BeanDefinition registerAspectJAutoProxyCreatorIfNecessary(
 
 可以看到，`AspectJAwareAdvisorAutoProxyCreator` 也是继承自 `AbstractAutoProxyCreator` 抽象父类，具体已经在 <a href="#autoProxy">基于 Auto Proxy 的AOP </a> 中详细介绍，在此不做过多的赘述。
 
-很容易能够猜到，`AnnotationAwareAspectJAutoProxyCreator` 就是完成注解相关任务的，即处理 `@Aspect` 等相关注解
+`AnnotationAwareAspectJAutoProxyCreator` 是处理有关 `@Aspect` 注解的类，它将添加了 `AspecJ` 注解的 Bean 处理为 Spring 中对应的 `Advisor`，具体处理逻辑在此不做详细介绍
 
 
 
+参考：
 
-
+<sup>[1]</sup> https://javadoop.com/post/spring-aop-source
