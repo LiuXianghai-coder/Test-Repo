@@ -135,8 +135,6 @@ Function<User, User> capital = user ->
     static <T> Flux<T> concat(Publisher<? extends T>... sources)
     ```
 
-  - 
-
 - 实例方法
 
   - `map`
@@ -197,7 +195,6 @@ Function<User, User> capital = user ->
     }
     ```
   
-  - 
 
 
 
@@ -232,8 +229,6 @@ Function<User, User> capital = user ->
     static <T> Mono<T> error(Throwable error);
     ```
 
-  - 
-
 - 实例方法
 
   - `map`
@@ -256,10 +251,7 @@ Function<User, User> capital = user ->
 
     <img src="https://s6.jpg.cm/2021/11/22/IOs5Kh.png" style="zoom:80%" />
 
-  - 
-
   
-
 
 
 ## StepVerifier
@@ -340,3 +332,102 @@ Function<User, User> capital = user ->
       .expectNextCount(3600) // 此时应当已经接受了 3600 个元素
       .verifyComplete(); // 测试结束
   ```
+
+
+
+## 背压（backpressure）
+
+前文介绍了有关 `Publisher` 和 `Subscriber` 之间的关系，在关系图中存在一个称为 “backpressure” 的轮子，这个组件的作用用于限制 `Publisher` 向 `Subscriber` 发送数据的速度，使得 `Subscriber` 能够正常地处理数据，不至于由于收到的数据过多无法处理而导致 `Subscriber` 宕机。
+
+这是一种反馈机制，由 `Subscriber` 向 `Publisher` 发送一个 “反馈信息”，表示自己准备处理多少数据，而 `Publisher` 通过这一 “反馈信息” 限制自己的发送数据的速度（具体可以将多余的数据丢弃或放入缓冲区），从而达到一个动态的平衡。
+
+```java
+Flux.just(1, 2, 3, 4, 5)
+    .log() // 打印相关的记录信息。。。。
+    .subscribe(new Subscriber<Integer>() {
+        private Subscription subscription;
+        private int amt = 0;
+
+        @Override
+        public void onSubscribe(Subscription subscription) {
+            this.subscription = subscription;
+            this.subscription.request(2); // 首先请求两个元素
+        }
+        
+        /* 
+        	之后，每获取到两个元素就发送一个 “获取下两个元素” 的反馈信息给 Publisher，
+        	以此达到背压的效果
+        */
+        @Override
+        public void onNext(Integer integer) {
+            System.out.println("onNext: " + integer);
+            amt++;
+            if (amt % 2 == 0) this.subscription.request(2);
+        }
+
+        @Override
+        public void onError(Throwable throwable) {
+            // nothing should to do....
+        }
+
+        @Override
+        public void onComplete() {
+            // nothing should to do....
+        }
+    });
+```
+
+
+
+## 并发
+
+一般情况下，创建的元素流是在当前的线程下启动的，由于 `Reactor` 是完全非阻塞的，因此如果某个流的操作阻塞的，那么在这种情况下可能就无法看到执行的信息（但实际上确实做了这个任务）。
+
+如果想要将当前流的执行环境放入到另一个线程中，可以考虑使用 `Reactor` 提供的 `Schedulers` 来实现
+
+具体示例如下：
+
+```java
+Flux.just(1, 2, 3, 4)
+    .log()
+    .map(i -> i * 2)
+    .subscribeOn(Schedulers.parallel())
+    .doOnNext(s -> System.out.println("Current Thread: " + Thread.currentThread().getName())) // 每次获取到元素时打印当前的线程
+    .subscribe();
+
+/* 
+	由于 JVM 会在不存在非守护线程时退出，而 Reactor 又是完全非阻塞的，因此 Reactor 运行时的线程会被视为一个已完成任务的线程（实际上还没有），在 Main 方法中，直接这么编写将会导致 JVM 提前结束；为了解决这个问题，主要有两种思路：使得当前线程睡眠一会儿使得所有任务有机会执行；开启一个新的非守护线程去执行这个任务（在当前的 Schedule 调度的情况下，会创建一个新的单线程的线程池去执行，因此这么做也是非阻塞的）。
+*/
+Thread.sleep(1000);
+```
+
+得到的输出如下：
+
+<img src="https://s6.jpg.cm/2021/11/24/LGqvnk.png" />
+
+图中的 "parallel-1" 就是 `Flux` 所在的流执行的线程
+
+如果使用创建新的线程的方式来执行，具体示例如下：
+
+```java
+// 创建一个
+Flux<Integer> flux = Flux.just(1, 2, 3, 4)
+    .log()
+    .map(i -> i * 2)
+    /* 
+    	注意，不要使用 Schedulers 来执行调度，这样会使得当前的“父线程”（当前 Flux 的执行线程）
+    	为非阻塞的而直接结束
+    */
+    // .subscribeOn(Schedulers.parallel()) 
+    .doOnNext(s -> System.out.println("Current Thread: " + Thread.currentThread().getName()));
+
+/* 
+	创建一个名为 "subscribe-Thread" 的线程去执行这个任务，由于 Flux 的元素是在这个新的线程中执行的，
+	因此在这个过程中这个线程始终都是存活的，这样就可以避免 JVM 提前退出的问题了
+*/
+new Thread(flux::subscribe, "subscribe-Thread").start();
+```
+
+执行结果如下：
+
+<img src="https://s6.jpg.cm/2021/11/24/LG7LNu.png" />
