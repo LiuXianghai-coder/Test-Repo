@@ -117,7 +117,46 @@ Function<User, User> capital = user ->
     
     // 每个一定时间间隔产生一个 Long 类型的元素到 Flux 的流中
     static Flux<Long> interval(Duration period);
+    
+    // 通过一个 Consumer，每次在请求元素时调用这个函数
+    static <T> Flux<T> generate(Consumer<SynchronousSink<T>> generator);
+    
+    // 支持从
+    static <T> Flux<T> create(Consumer<? super FluxSink<T>> emitter);
+    
+    static <T> Flux<T> push(Consumer<? super FluxSink<T>> emitter);
     ```
+
+    
+
+  - `generate`
+
+    通过响应请求，产生不同的元素。
+
+    <img src="https://i.loli.net/2021/11/24/iPdq4yZQ5mFNT9L.png" alt="image.png" style="zoom:80%;" />
+
+    具体示例如下：
+
+    ```java
+    Scanner sc = new Scanner(System.in);
+    
+    // 从控制台获取输入，然后生成对应的流元素，将将这些元素转换为大写之后再输出到控制台
+    Flux.<String>generate(sink -> {
+        sink.next(sc.next()); // 这里的 sink 是同步的
+    })
+        .doFinally(any -> sc.close())
+        .map(String::toUpperCase)
+        .subscribe(System.out::println);
+    // 这种方式在响应客户的相关请求时比较有用
+    ```
+
+  - `create`
+
+    <img src="https://i.loli.net/2021/11/24/r1dQJVXBnv4btWs.png" alt="image.png" style="zoom:100%;" />
+
+    该方法将 `Publisher` 的生产步骤暴露给外部，使得将产生元素的逻辑拆分到外部，而将元素的处理逻辑封装起来，减少系统的耦合
+
+    
 
   - `merge`
 
@@ -256,7 +295,7 @@ Function<User, User> capital = user ->
 
 ## StepVerifier
 
-`Reactor Programming` 和一般的编程不一样，由于它是完全非阻塞的，因此代码的调试将会变得很困难，使用 `StepVerifier` 类能够有效地检测 `Reactor Stream` 是否时按照预期的定义进行的
+`Reactor Programming` 和一般的编程不一样，由于它是完全非阻塞的，因此代码的调试可能会变得很困难，使用 `StepVerifier` 类能够有效地检测 `Reactor Stream` 是否时按照预期的定义进行的
 
 首先，需要添加 `reactor-test` 相关的依赖
 
@@ -339,7 +378,7 @@ Function<User, User> capital = user ->
 
 前文介绍了有关 `Publisher` 和 `Subscriber` 之间的关系，在关系图中存在一个称为 “backpressure” 的轮子，这个组件的作用用于限制 `Publisher` 向 `Subscriber` 发送数据的速度，使得 `Subscriber` 能够正常地处理数据，不至于由于收到的数据过多无法处理而导致 `Subscriber` 宕机。
 
-这是一种反馈机制，由 `Subscriber` 向 `Publisher` 发送一个 “反馈信息”，表示自己准备处理多少数据，而 `Publisher` 通过这一 “反馈信息” 限制自己的发送数据的速度（具体可以将多余的数据丢弃或放入缓冲区），从而达到一个动态的平衡。
+这是一种反馈机制，由 `Subscriber` 向 `Publisher` 发送一个 “反馈信息”，表示自己准备处理多少数据，而 `Publisher` 通过这一 “反馈信息” 限制自己的发送数据的速度（具体可以将多余的数据丢弃或放入缓冲区等），从而达到一个动态的平衡。
 
 ```java
 Flux.just(1, 2, 3, 4, 5)
@@ -377,6 +416,51 @@ Flux.just(1, 2, 3, 4, 5)
     });
 ```
 
+### 处理策略
+
+- 
+
+
+
+## 冷流和热流
+
+一般由 `Flux.jus(...)` 方法创建的元素流是静态的、有长度限制的并且只能被 `Subscriber` 一次，处理起来也比较容易，这种元素流也被称为 “冷流”。实际使用过程中，这种情况不太可能会遇到，一般情况下，没有长度限制的元素流、能够被多个订阅者订阅的元素流才是常见的情况
+
+### 冷流——> 热流
+
+通过调用 `Flux` 对象的 `publish()` 或 `replay` 方法可以将 “冷流” 转换为 “热流”
+
+- `publish()`
+
+  <img src="https://i.loli.net/2021/11/24/mjYTwrSOMGEvnVh.png" alt="image.png" style="zoom:90%;" />
+
+  如图，调用 `publish`() 方法之后，每个 `subscriber` 都有自己的一个 `Flux` 元素流，从而使得多个 `subscriber` 能够订阅一个 `Flux`
+
+  具体示例如下：
+
+  ```java
+  ConnectableFlux<Object> publish = Flux.create(sink -> {
+                      while (true) {
+                          sink.next(System.currentTimeMillis()); // 不断地产生元素
+                      }
+                  })
+                  .sample(Duration.ofMillis(500)) // 每隔 500ms publish 一个元素
+                  .publish();
+  publish.subscribe(s -> System.out.println("Subscribe-1: " + s)); // subscrbe-1
+  publish.subscribe(s -> System.out.println("Subscribe-2: " + s)); // subscrbe-1
+  publish.connect(); // 在 connect 之前不会产生进一步的动作
+  
+  // 也可以在调用 publish() 方法之后直接调用 autoConnect() 方法使得订阅的 subscriber 能够自动连接，或者也可以通过 refCount(int n) 方法使得在有 n 个订阅者订阅时自动连接来达到同样的效果
+  ```
+
+  
+
+- `replay()`
+
+  ![image.png](https://i.loli.net/2021/11/24/s83kXy6Liu1MNKb.png)
+
+  `replay()` 同样可以将 “冷流” 转换为 “热流”，不同的地方在与 `replay()` 方法会使得新来的 `subscribe` 首先获取前面的元素，再正式完成元素流的订阅。
+
 
 
 ## 并发
@@ -391,7 +475,7 @@ Flux.just(1, 2, 3, 4, 5)
 Flux.just(1, 2, 3, 4)
     .log()
     .map(i -> i * 2)
-    .subscribeOn(Schedulers.parallel())
+    .subscribeOn(Schedulers.parallel()) // 修改 Subscribe 所在的线程，这里由 Schedulers 控制
     .doOnNext(s -> System.out.println("Current Thread: " + Thread.currentThread().getName())) // 每次获取到元素时打印当前的线程
     .subscribe();
 
