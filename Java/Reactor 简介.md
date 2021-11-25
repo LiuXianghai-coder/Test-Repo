@@ -267,6 +267,34 @@ Function<User, User> capital = user ->
     // 产生一个带有异常的 Mono
     static <T> Mono<T> error(Throwable error);
     ```
+    
+  - `fromSupplier`
+
+    <img src="https://s6.jpg.cm/2021/11/25/LGbBY2.png" />
+
+    创建一个 `Mono`，产生的元素由对应的 `Supplier` 来提供，如果 `Supplier` 产生的是 `null`，那么就会得到一个空的 `Mono`
+
+    方法原型如下：
+
+    ```java
+    public static <T> Mono<T> fromSupplier(Supplier<? extends T> supplier)
+    ```
+
+    这个方法在结合 `Flux` 实现异步处理的时候非常有用，类似的方法还有：`fromCallable`、`fromRunnable`、`fromFuture` 等
+
+  - `defer`
+
+    <img src="https://s6.jpg.cm/2021/11/25/LGbzqL.png" />
+
+    创建一个 `Mono` ，通过这种方式创建的 `Mono` 会为每个 `subscriber` 提供一个**新的**一致的 `Mono`
+
+    方法原型如下：
+
+    ```java
+    public static <T> Mono<T> defer(Supplier<? extends Mono<? extends T>> supplier)
+    ```
+
+    
 
 - 实例方法
 
@@ -416,9 +444,33 @@ Flux.just(1, 2, 3, 4, 5)
     });
 ```
 
+
+
 ### 处理策略
 
-- 
+当`Publisher` 发布元素的速度大于 `Subscriber` 能够处理的速度时，将会导致 `Publisher` 的·数据积压，需要采取不同的处理策略来解决这个问题。
+
+ 具体的处理策略定义于 `reactor.core.publisher.FluxSink.OverflowStrategy` 中，主要有以下几种策略：
+
+- `BUFFER`（默认）
+
+  将多余的元素放入 `buffer` 中，这种方式在速率相差很大的情况下将会产生异常
+
+- `LATEST`
+
+  订阅者仅仅获得最新的元素，和 `DROP` 策略有点类似
+
+- `DROP`
+
+  `Publisher` 丢弃产生的多余的元素
+
+- `ERROR`
+
+  直接传一个 `IllegalStateException` 给 `Subscriber`
+
+- `IGNORE`
+
+  完全忽略来自 `Subscriber` 的背压请求（当订阅者队列已满时，这可能会导致 `IllegalStateException `）
 
 
 
@@ -426,7 +478,7 @@ Flux.just(1, 2, 3, 4, 5)
 
 一般由 `Flux.jus(...)` 方法创建的元素流是静态的、有长度限制的并且只能被 `Subscriber` 一次，处理起来也比较容易，这种元素流也被称为 “冷流”。实际使用过程中，这种情况不太可能会遇到，一般情况下，没有长度限制的元素流、能够被多个订阅者订阅的元素流才是常见的情况
 
-### 冷流——> 热流
+### 冷流 —> 热流
 
 通过调用 `Flux` 对象的 `publish()` 或 `replay` 方法可以将 “冷流” 转换为 “热流”
 
@@ -515,3 +567,142 @@ new Thread(flux::subscribe, "subscribe-Thread").start();
 执行结果如下：
 
 <img src="https://s6.jpg.cm/2021/11/24/LG7LNu.png" />
+
+
+
+## 实际使用
+
+### 异步处理
+
+现在，有了 `Reactor` 之后，实现任务的异步处理就变得十分简单了。在 `Reactor` 之前，如果使用传统的 `Future` 或者 `CompletableFuture` 来实现类似功能，尽管看上去是异步的，但是实际上 `Future` 的 `get()` 操作依旧是阻塞的
+
+现在，来看一个具体的问题：现在需要从一些文件中读取一些数据，再将它们进行排序。
+
+由于 IO 操作是一个阻塞操作，按照一般的同步的方式进行文件的读取，当遇到一个文件比较大时，将会导致整个系统整体的响应时间会比较大，使用异步的方式可以有效地降低系统的响应时间。
+
+```java
+File[] readFiles = new File[]{
+    new File(basPath + "/data_1.txt"), // data_1 的数据量为 10000 条
+    new File(basPath + "/data_2.txt"), // data_2 的数据量为 100 条
+    new File(basPath + "/data_3.txt"), // data_3 的数据量为 30000 条
+    new File(basPath + "/data_4.txt"), // data_4 的数据量为 600 条
+    new File(basPath + "/data_5.txt"), // data_5 的数据量为 200 条
+    new File(basPath + "/data_6.txt"), // data_6 的数据量为 20000 条
+};
+
+AtomicLong start = new AtomicLong();
+AtomicLong end = new AtomicLong();
+Flux.just(readFiles)
+        .doOnSubscribe(any -> start.set(System.currentTimeMillis()))
+        .flatMap(
+                file -> Mono.just(new ReadFunction(file.getName()).apply(file))
+                        .subscribeOn(Schedulers.newParallel("Thread-" + file.getName()))
+                        .flatMap(element -> Mono.just(new SortFunction().apply(element)))
+        )
+        .doOnNext(element -> System.out.println(element.getName() + " has been finished......"))
+        .subscribe(new Subscriber<Element>() {
+            private Subscription subscription;
+
+            @Override
+            public void onSubscribe(Subscription subscription) {
+                this.subscription = subscription;
+                this.subscription.request(1L);
+            }
+
+            @Override
+            public void onNext(Element element) {
+                System.out.println("Get Element=" + element.getName());
+                this.subscription.request(1L);
+            }
+
+            @Override
+            public void onError(Throwable throwable) {}
+
+            @Override
+            public void onComplete() {
+                end.set(System.currentTimeMillis());
+                System.out.println("Take Time: " + (end.get() - start.get()) + " ms");
+                System.exit(0); // 由于使用别的线程来处理，有时这些线程会一直存在，导致 JVM 无法正常退出。。。。
+            }
+        });
+```
+
+运行结果如下：
+
+<img src="https://s6.jpg.cm/2021/11/25/LGv7JT.png" />
+
+可以看到，最终的结果是通过异步的方式来执行的（不是按照元素流的顺序），`Reactor` 是 `Java` 实现异步编程很有用的工具
+
+
+
+### 任务调度
+
+有四个程序：service-1、service-2、service-3、service-4 存在以下依赖关系：service-1 必须等待 service-2 程序执行完成之后才能执行，service-4 必须在 service-1 和 service-3 全部执行完成之后才能执行。
+
+如果通过其它的 `Future` 类来完成这几个服务程序的处理，代码将会变得相当复杂，但是使用 `Reactor` 则可以简化这些代码。
+
+首先，模拟四个服务程序：
+
+```java
+public class Util {
+    public static void print(Flux<?> flux) {
+        flux.subscribe(System.out::println);
+    }
+    
+    // service-1 执行 1000 ms
+    public static String service1() throws InterruptedException {
+        Thread.sleep(1000);
+        return "service-1";
+    }
+    
+    // service-2 执行 1500 ms
+    public static String service2(String inputFrom1) throws InterruptedException {
+        Thread.sleep(1500);
+        return "service-2 " + inputFrom1;
+    }
+    
+    // service-3 执行 1200 ms
+    public static String service3() throws InterruptedException {
+        Thread.sleep(1200);
+        return "service-3";
+    }
+    
+    // service-4 执行 500 ms
+    public static String service4(String inputFrom2, String inputFrom3) throws InterruptedException {
+        Thread.sleep(500);
+        return "service-4: " + inputFrom2 + " : " + inputFrom3;
+    }
+}
+```
+
+现在通过 `Reactor` 的方式来将这四个程序进行调度处理：
+
+```java
+Mono<String> mono2 = Mono.fromCallable(Util::service1)
+    .flatMap(ret1 -> Mono.fromCallable(() -> Util.service2(ret1))
+             .subscribeOn(Schedulers.newSingle("service2"))
+            ); // service-1 和 service-2 之间的依赖关系
+
+Mono<String> mono3 = Mono.fromCallable(Util::service3)
+    .subscribeOn(Schedulers.newSingle("service3")); // service-3 是一个单独的执行任务
+
+Mono<String> ret4 = Flux.zip(mono2, mono3).single() // zip 方法将两个 publisher 合并到一起
+    .flatMap(tuple -> Mono.fromCallable( () -> Util.service4(tuple.getT1(), tuple.getT2()))); // 合并 service-1 和 service-3，并执行 service-4 的任务
+
+System.out.println("=======================================");
+AtomicLong start = new AtomicLong(), end = new AtomicLong();
+ret4.doOnSubscribe(any -> start.set(System.currentTimeMillis()))
+    .doFinally(any -> {
+        end.set(System.currentTimeMillis());
+        System.out.println("take time: " + (end.get() - start.get()) + " ms");
+        System.exit(0);
+    })
+    .subscribe(System.out::println);
+```
+
+输出结果如下：
+
+<img src="https://s6.jpg.cm/2021/11/25/LGv9oh.png" />
+
+由于线程睡眠、唤醒以及上下文切换之间存在一定的开销，因此最终的执行时间会大于必要的串行执行的总和 $1000ms + 1500ms + 500ms = 3000ms$
+
