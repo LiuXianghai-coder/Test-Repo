@@ -706,3 +706,8 @@ ret4.doOnSubscribe(any -> start.set(System.currentTimeMillis()))
 
 由于线程睡眠、唤醒以及上下文切换之间存在一定的开销，因此最终的执行时间会大于必要的串行执行的总和 $1000ms + 1500ms + 500ms = 3000ms$
 
+参考：
+
+<sup>[1]</sup> https://tech.io/playgrounds/929/reactive-programming-with-reactor-3/Intro
+
+<sup>[2]</sup> https://www.baeldung.com/reactor-core
