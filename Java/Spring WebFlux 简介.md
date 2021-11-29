@@ -202,4 +202,143 @@ public RouterFunction<ServerResponse> route3(@Autowired HandlerA handlerA) {
    }
    ```
 
-3. 
+3. 之后就是一般的 Spring IOC 容器的创建和 `Bean` 的初始化了，与 `Reactor` 相关的比较重要的部分为 `onRefresh()` 方法调用的阶段，这个方法使用到了 `模板方法` 模式，在 `org.springframework.boot.web.reactive.context.ReactiveWebServerApplicationContext` 类中得到了具体的实现
+
+   `onRefresh()` 在 `WebFlux` 中的实现的源代码如下：
+
+   ```java
+   @Override
+   protected void onRefresh() {
+       // AbstractApplicationContext 中定义的 “模板方法”，就目前 Spring 5.3.13 的版本来讲，是一个空的方法
+       super.onRefresh();
+       
+       createWebServer(); // 由 WebFlux 具体定义
+       
+       // 省略有一部分异常捕获代码
+   }
+   ```
+
+   `createWebServer()` 方法对应的源代码如下：
+
+   ```java
+   // 该方法定义依旧位于 org.springframework.boot.web.reactive.context.ReactiveWebServerApplicationContext 中
+   
+   private void createWebServer() {
+       WebServerManager serverManager = this.serverManager; // 默认为 null
+       if (serverManager == null) {
+           // 获取 BeanFactory。。。。。
+           StartupStep createWebServer = this.getApplicationStartup().start("spring.boot.webserver.create");
+           String webServerFactoryBeanName = getWebServerFactoryBeanName();
+           /*
+           	默认情况下，WebFlux 会选择 Netty 作为服务器，这是因为 Netty 的处理模型十分适合 Reactor 编程，因此能够很好地契合 WebFlux
+           	在这里的 webServerFactory 为 org.springframework.boot.web.embedded.netty.NettyReactiveWebServerFactory
+           */
+           ReactiveWebServerFactory webServerFactory = getWebServerFactory(webServerFactoryBeanName);
+           createWebServer.tag("factory", webServerFactory.getClass().toString());
+           // 获取 BeanFactory 结束。。。。
+           
+           boolean lazyInit = getBeanFactory().getBeanDefinition(webServerFactoryBeanName).isLazyInit(); // 默认为 false
+           
+           /*
+           	比较关键的部分，这里会创建一个 WebServerManager
+           */
+           this.serverManager = new WebServerManager(this, webServerFactory, this::getHttpHandler, lazyInit);
+           
+           // 剩下的部分就是完成一些其它 Bean 的注册了。。。
+           getBeanFactory().registerSingleton("webServerGracefulShutdown",
+                                              new WebServerGracefulShutdownLifecycle(this.serverManager.getWebServer()));
+           getBeanFactory().registerSingleton("webServerStartStop",
+                                              new WebServerStartStopLifecycle(this.serverManager));
+           createWebServer.end();
+       }
+       // 最后再初始化相关的属性资源，在当前的类中，这也是一个模板方法
+       initPropertySources();
+   }
+   ```
+
+4. 剩下的就是一般的 IOC 初始化流程，在此不做赘述
+
+
+
+### WebServerFactory 的实例化
+
+具体对应上文描述的 `createWebServer`()  方法中
+
+```java
+ReactiveWebServerFactory webServerFactory=getWebServerFactory(webServerFactoryBeanName);
+```
+
+的部分，其中 `getWebServerFactory` 对应的源代码如下：
+
+```java
+protected ReactiveWebServerFactory getWebServerFactory(String factoryBeanName) {
+    /*
+    	当前环境下的 factoryBeanName 为 "nettyReactiveWebServerFactory"，按照 Spring Bean 默认的命名方式，将会加载 NettyReactiveWebServerFactory 作为 ReactiveWebServerFactory 的实现 
+    */
+    return getBeanFactory().getBean(factoryBeanName, ReactiveWebServerFactory.class);
+}
+```
+
+`WebServerManager` 的实例化对应的源代码如下：
+
+```java
+WebServerManager(
+    ReactiveWebServerApplicationContext applicationContext, 
+    ReactiveWebServerFactory factory,
+    Supplier<HttpHandler> handlerSupplier, boolean lazyInit
+) {
+    this.applicationContext = applicationContext;
+    Assert.notNull(factory, "Factory must not be null");
+    /* 
+    	比较重要的部分就是有关 HttpHandler 的处理，在这里定义了 HttpHandler Bean 的初始化方式
+    	结合上文中默认传入的参数，在当前的上下文环境中不是以 lazy-init 的方式进行加载的
+    */
+    this.handler = new DelayedInitializationHttpHandler(handlerSupplier, lazyInit);
+    
+    this.webServer = factory.getWebServer(this.handler);
+}
+```
+
+具体 `NettyReactiveWebServerFactory ` 中对 `getWebServer(handler)` 方法的实现如下：
+
+```java
+// 该方法定义于 org.springframework.boot.web.embedded.netty.NettyReactiveWebServerFactory
+@Override
+public WebServer getWebServer(HttpHandler httpHandler) {
+    HttpServer httpServer = createHttpServer();
+    
+    /* 
+    	这里是重点部分！HttpHandler 的作用相当于 Spring MVC 中的 DispatcherServlet，用于处理请求的分发，以及寻找 Handler 对请求进行处理。。。。
+    	
+    	这里使用到了 "适配器模式", handlerAdapter 将 HttpHandler 适配到 Netty 的 Channel,使得原本不相干的两个对象能够协同工作
+    */
+    ReactorHttpHandlerAdapter handlerAdapter = new ReactorHttpHandlerAdapter(httpHandler);
+    
+    // 创建 Netty 服务端。。。。。。。。
+    NettyWebServer webServer = createNettyWebServer(
+        httpServer, handlerAdapter, this.lifecycleTimeout, getShutdown()
+    );
+    webServer.setRouteProviders(this.routeProviders);
+    return webServer;
+}
+```
+
+
+
+### HttpHandler 的实例化
+
+在 `Reactive` 中，对于 `handlerSupplier` 的定义如下：
+
+```java
+// 该方法定义于 org.springframework.boot.web.reactive.context.ReactiveWebServerApplicationContext 中
+protected HttpHandler getHttpHandler() {
+    // Use bean names so that we don't consider the hierarchy
+    String[] beanNames = getBeanFactory().getBeanNamesForType(HttpHandler.class);
+    // 省略一部分参数检测代码。。。。
+
+    // 具体参见 NettyReactiveWebServerFactory 中
+    return getBeanFactory().getBean(beanNames[0], HttpHandler.class);
+}
+```
+
+经过上文的分析，在当前的是上下文环境中使用的 
