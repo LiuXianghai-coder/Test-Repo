@@ -515,7 +515,91 @@ public class WebFluxConfigurationSupport implements ApplicationContextAware {
 
 
 
-对请求的具体分析：
+对请求的具体分析： 
+
+1. 服务的启动
+
+   以 `NettyWebServer` 为例，查看服务启动的源代码
+
+   ```java
+   // 该方法定义于 org.springframework.boot.web.embedded.netty.NettyWebServer
+   DisposableServer startHttpServer() {
+       HttpServer server = this.httpServer; // HttpServerBind 为当上下文的具体实现
+       if (this.routeProviders.isEmpty()) {
+           // 在这里定义了对于请求的处理逻辑。。。。
+           server = server.handle(this.handler);
+       }
+       else {
+           server = server.route(this::applyRouteProviders);
+       }
+       if (this.lifecycleTimeout != null) {
+           return server.bindNow(this.lifecycleTimeout);
+       }
+       return server.bindNow();
+   }
+   ```
+
+   `handle(handler)` 对应的源代码如下：
+
+   ```java
+   // 该方法定义于 reactor.netty.http.server.HttpServer
+   
+   /*
+   	该方法的主要目的是捕获来自客户端的请求，附加一个 IO 处理程序以对连接的客户端作出响应
+   */
+   public final HttpServer handle(
+       BiFunction<? super HttpServerRequest, ? super HttpServerResponse, ? extends Publisher<Void>> handler) {
+       Objects.requireNonNull(handler, "handler");
+       // 重点在于具体的 handler，它定义了处理请求的逻辑
+       return childObserve(new HttpServerHandle(handler));
+   }
+   ```
+
+   继续查看 `HttpServerHandle` 的源代码，具体如下：
+
+   ```java
+   static final class HttpServerHandle implements ConnectionObserver {
+   
+       final BiFunction<? super HttpServerRequest, ? super HttpServerResponse, ? extends Publisher<Void>> handler;
+   
+       HttpServerHandle(BiFunction<? super HttpServerRequest, ? super HttpServerResponse, ? extends Publisher<Void>> handler) {
+           this.handler = handler;
+       }
+       
+       /*
+       	重点部分在这里，这里设置一个观察者来监听请求，当请求状态发生改变时，则作出对应的响应
+       */
+       @Override
+       @SuppressWarnings("FutureReturnValueIgnored")
+       public void onStateChange(Connection connection, State newState) {
+           if (newState == HttpServerState.REQUEST_RECEIVED) {
+               try {
+                   if (log.isDebugEnabled()) {
+                       log.debug(format(connection.channel(), "Handler is being applied: {}"), handler);
+                   }
+                   HttpServerOperations ops = (HttpServerOperations) connection;
+                   /*
+                   	重点部分就在这里了，在当前的上下问环境中当前的 handler 为 ReactorHttpHandlerAdapter
+                   	具体细节可以查看 org.springframework.boot.web.reactive.context.ReactiveWebServerApplicationContext 在 refresh() 阶段创建 WebManager 的源代码，在那里定义了当前 webServer 的具体实现过程
+                   */
+                   Mono<Void> mono = Mono.fromDirect(handler.apply(ops, ops));
+                   if (ops.mapHandle != null) {
+                       mono = ops.mapHandle.apply(mono, connection);
+                   }
+                   mono.subscribe(ops.disposeSubscriber());
+               }
+               catch (Throwable t) {
+                   log.error(format(connection.channel(), ""), t);
+                   //"FutureReturnValueIgnored" this is deliberate
+                   connection.channel()
+                       .close();
+               }
+           }
+       }
+   }
+   ```
+
+   
 
 1. `ReactorHttpHandlerAdapter`
 
