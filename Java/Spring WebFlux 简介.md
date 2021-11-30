@@ -343,6 +343,8 @@ protected HttpHandler getHttpHandler() {
 
 由于 Spring Boot 自动配置的存在，在创建应用时会把能够自动配置的类自动配置到 IOC 中，具体包括 `spring.factories` 文件中定义的 Bean、以及使用 `@Configuration` 注解修饰的配置类。
 
+
+
 在 `WebFlux ` 中 `HttpHandler` 的配置类的定义如下：
 
 ```java
@@ -370,13 +372,54 @@ public static class AnnotationConfig {
 }
 ```
 
+
+
+`applicationContext(applicationContext)` 对应的源代码如下：
+
+```java
+public static WebHttpHandlerBuilder applicationContext(ApplicationContext context) {
+    /*
+    	获取 WebHandler Bean，由于 Spring Boot 的自动配置的存在，在将 org.springframework.boot.autoconfigure.web.reactive.HttpHandlerAutoConfiguration 配置类加载到 IOC 容器中时，将会自动引入 DispatcherHandler 的 WebHandler Bean
+    	HttpHandlerAutoConfiguration 在 spring.factories 中定义为是可以自动配置的
+    */
+    WebHttpHandlerBuilder builder = new WebHttpHandlerBuilder(
+        context.getBean(WEB_HANDLER_BEAN_NAME, WebHandler.class), context);
+    
+    // 添加 WebFliter。。。。
+    List<WebFilter> webFilters = context
+        .getBeanProvider(WebFilter.class)
+        .orderedStream()
+        .collect(Collectors.toList());
+    builder.filters(filters -> filters.addAll(webFilters));
+    
+    // 异常处理 Handler。。。
+    List<WebExceptionHandler> exceptionHandlers = context
+        .getBeanProvider(WebExceptionHandler.class)
+        .orderedStream()
+        .collect(Collectors.toList());
+    builder.exceptionHandlers(handlers -> handlers.addAll(exceptionHandlers));
+    
+    // 省略一部分不太重要的代码。。。。
+
+    return builder;
+}
+```
+
+
+
 `bulid()` 方法的定义如下：
 
 ```java
 // 该方法定义于 org.springframework.web.server.adapter.WebHttpHandlerBuilder 中
 public HttpHandler build() {
+    /* 
+    	这里是 WebFlux 用于处理请求的关键的地方，通过 “装饰者” 模式，将 FilterWebHandler 通过 ExceptionHandlingWebHandler 进行 “装饰”，使得在处理请求时先执行 ExceptionHandlingWebHandler 的 handle 的处理逻辑，从而增强了底层 FilterWebHandler 的功能
+    	
+    	在设计时值得考虑使用这样的方式来优化自己的设计，从而尽可能地复用已有的对象和类
+   	*/
     WebHandler decorated = new FilteringWebHandler(this.webHandler, this.filters);
     decorated = new ExceptionHandlingWebHandler(decorated,  this.exceptionHandlers);
+   
     // 因此最终生成的 HttpHandler 的具体实例化类为 HttpWebHandlerAdapter 
     HttpWebHandlerAdapter adapted = new HttpWebHandlerAdapter(decorated);
     
@@ -462,7 +505,279 @@ public class WebFluxConfigurationSupport implements ApplicationContextAware {
 
 <img src="https://s6.jpg.cm/2021/11/30/LRwdPD.png" />
 
+有关 `WebHandler` 的类层次结构如下：
+
+<img src="https://s6.jpg.cm/2021/11/30/LR3e1u.png" />
 
 
 
+对请求的具体分析：
 
+1. `ReactorHttpHandlerAdapter`
+
+   具体处理请求的源代码如下：
+
+   ```java
+   // 此方法定义于 org.springframework.http.server.reactive.ReactorHttpHandlerAdapter 
+   @Override
+   public Mono<Void> apply(HttpServerRequest reactorRequest, HttpServerResponse reactorResponse) {
+       // 用于创建对应的 ByteBuf，具体可以查看有关 Netty 的 ByteBuf 
+       NettyDataBufferFactory bufferFactory = new NettyDataBufferFactory(reactorResponse.alloc());
+       /*
+           	为 request 和 response 创建对应的 ByteBuf。。。。。
+           	但是就目前步骤来讲并不会真正创建 ByteBuf，而是只是设置创建 ByteBuf 的工厂对象
+           */
+           ReactorServerHttpRequest request = new ReactorServerHttpRequest(reactorRequest, bufferFactory);
+           ServerHttpResponse response = new ReactorServerHttpResponse(reactorResponse, bufferFactory);
+           
+           // Rest 风格的请求，“Head”，不常用。。。
+           if (request.getMethod() == HttpMethod.HEAD) {
+               response = new HttpHeadResponseDecorator(response);
+           }
+       
+       	/*
+       		这里是重点部分！在这里定义了实际的处理逻辑 (handle 方法)
+       	*/
+           return this.httpHandler.handle(request, response)
+               .doOnError(ex -> logger.trace(request.getLogPrefix() + "Failed to complete: " + ex.getMessage()))
+               .doOnSuccess(aVoid -> logger.trace(request.getLogPrefix() + "Handling completed"));
+       
+       // 省略部分异常检测代码。。。。
+   }
+   ```
+
+2. `HttpWebHandlerAdapter`
+
+   经过上文的相关分析，在当前的运行条件下唯一存在于 Spring IOC 的 `HttpHandler` 的实际 Bean 为 `HttpWebHandlerAdapter`，即具体执行的 `handle()` 方法为 `HttpWebHandlerAdapter` 的具体实现
+
+   对应的源代码如下：
+
+   ```java
+   
+   // 该方法定义于 org.springframework.web.server.adapter.HttpWebHandlerAdapter
+   @Override
+   public Mono<Void> handle(ServerHttpRequest request, ServerHttpResponse response) {
+       if (this.forwardedHeaderTransformer != null) {
+           request = this.forwardedHeaderTransformer.apply(request);
+           // 省略一部分异常检测代码。。。。
+       }
+       ServerWebExchange exchange = createExchange(request, response);
+       
+       // 省略一部分日志打印的代码。。。。
+       
+       /*
+       	通过对 HttpHandler 实例化的分析，现在调用的是最外层的 ExceptionHandlingWebHandler 的 handle() 方法
+       */
+       return getDelegate().handle(exchange)
+           .doOnSuccess(aVoid -> logResponse(exchange))
+           .onErrorResume(ex -> handleUnresolvedError(exchange, ex))
+           .then(Mono.defer(response::setComplete));
+   }
+   ```
+
+3. `ExceptionHandlingWebHandler`
+
+   其中具体的源代码如下：
+
+   ```java
+   // 该方法定义于 org.springframework.web.server.handler.ExceptionHandlingWebHandler。。。
+   
+   @Override
+   public Mono<Void> handle(ServerWebExchange exchange) {
+       Mono<Void> completion;
+       try {
+           // 首先会执行父类的 handle 方法
+           completion = super.handle(exchange);
+       } catch (Throwable ex) {
+           // 处理过程中存在异常则返回一个 error 到上层
+           completion = Mono.error(ex);
+       }
+       
+       /*
+       	遍历当前上下文中存在的 WebExceptionHandler，如果处理结果存在对应的 Handler 预定义的异常，那么将会处理对应的异常。。。
+       */
+       for (WebExceptionHandler handler : this.exceptionHandlers) {
+           completion = completion.onErrorResume(ex -> handler.handle(exchange, ex));
+       }
+       return completion;
+   }
+   ```
+
+   根据上文中的 `WebHandler` 的类结构图，`ExceptionHandlingWebHandler` 继承自 `WebHandlerDecorator`，其中中的 `handle()` 方法的定义如下：
+
+   ```java
+   // 该具体实现定义于 org.springframework.web.server.handler.WebHandlerDecorator
+   @Override
+   public Mono<Void> handle(ServerWebExchange exchange) {
+       /*
+       	结合之前使用 “构建者模式” 来构造 HttpHandler 的过程，在构建时通过 “装饰器模式” 来增强 FilterWebHandler 功能的逻辑，对于当前的执行上下文 ExceptionHandlingWebHandler, 其中的 delegate 为 FilterWebHandler
+       */
+       return this.delegate.handle(exchange);
+   }
+   ```
+
+   也就是说，WebFlux 在接收到一个请求时，首先将请求发送到 `ExceptionHandlingWebHandler` 进行进一步的处理，而在 `ExceptionHandlingWebHandler` 在调用 `handle()` 方法进行处理时，首先会再讲请求发送到下一层的 `handle()` 方法，最后通过处理结果再执行当前上下文对应的逻辑
+
+   在 `ExceptionHandlingWebHandler` 中，当处理结果出现异常时将会进行捕获，并返回一个带有 error 的 `Mono`
+
+    
+
+4. `FilteringWebHandler`
+
+   具体的源代码如下：
+
+   ```java
+   // 该方法定义于 org.springframework.web.server.handler.FilteringWebHandler 中
+   
+   /*
+   	在使用 “构建者模式” 构建 HttpHandler Bean 时，会创建一个 FilteringWebHandler 的实例
+   	传入的参数为 DispatcherHandler, filters
+   */
+   public FilteringWebHandler(WebHandler handler, List<WebFilter> filters) {
+       super(handler); // 设置当前的 delegate，将请求发送到下一层
+       this.chain = new DefaultWebFilterChain(handler, filters);
+   }
+   
+   @Override
+   public Mono<Void> handle(ServerWebExchange exchange) {
+       // 在这里定义了对应的过滤处理
+       return this.chain.filter(exchange); 
+   }
+   ```
+
+   结合构造 `FilteringWebHandler` 对象时的构造函数，`chain` 的具体实例对象为 `DefaultWebFilterChain`，具体的 `filter(exchange)` 方法的定义如下：
+
+   ```java
+   // org.springframework.web.server.handler.DefaultWebFilterChain
+   
+   @Override
+   public Mono<Void> filter(ServerWebExchange exchange) {
+       return Mono.defer(() ->
+                         this.currentFilter != null && this.chain != null ?
+                         // 如果没有定义 Filter，那么就会将 request 发送到下一层的 WebHandler，在当前环境下下一层的 WebHandler 为 DispatcherHandler
+                         invokeFilter(this.currentFilter, this.chain, exchange) :
+                         this.handler.handle(exchange)
+                        );
+   }
+   ```
+
+5. `DispatcherHandler`
+
+   对应的源代码如下：
+
+   ```java
+   // org.springframework.web.reactive.DispatcherHandler
+   
+   @Override
+   public Mono<Void> handle(ServerWebExchange exchange) {
+       // 省略一部分不太重要的代码。。。
+       
+       return Flux.fromIterable(this.handlerMappings) 
+           /* 
+           	遍历对应的处理的 Mapping，将它们组合为一个 Flux，这么做的目的是为了使得 @RequestMapping 注解能够和 RouterFunction 能够协同工作
+           	经过这一轮处理之后将会得到所有的 request 对应的 handler
+           */
+           .concatMap(mapping -> mapping.getHandler(exchange))
+           .next() // 为每个处理创建一个单独的 Mono，以达到完全异步的效果
+           .switchIfEmpty(createNotFoundError())
+           // 调用对应的 handler 方法处理请求
+           .flatMap(handler -> invokeHandler(exchange, handler))
+           // 将处理后的结果进行一定的封装之后再组合成一个 Flux
+           .flatMap(result -> handleResult(exchange, result));
+   }
+   ```
+
+   `invokeHandler(exchange, handler)` 对应的源代码如下：
+
+   ```java
+   // org.springframework.web.reactive.DispatcherHandler
+   private Mono<HandlerResult> 
+       invokeHandler(
+       ServerWebExchange exchange, 
+       Object handler
+   ) {
+       // 省略一部分 CORS 检测。。。
+       
+       if (this.handlerAdapters != null) {
+           // 通过合适的 HandlerAdapter 适配所有的 handler，使得 handler 能够正常地处理请求
+           for (HandlerAdapter handlerAdapter : this.handlerAdapters) {
+               if (handlerAdapter.supports(handler)) {
+                   // “适配器模式” 的使用 :)
+                   return handlerAdapter.handle(exchange, handler);
+               }
+           }
+       }
+       return Mono.error(new IllegalStateException("No HandlerAdapter: " + handler));
+   }
+   ```
+
+   具体的 `HandlerAdapter` 的类结构图如下：
+
+   <img src="https://s6.jpg.cm/2021/11/30/LRhqTH.png" />
+
+   
+
+6. `HandlerFunctionAdapter`
+
+   最后一步的 `handle(exchange)` 方法，对应的源代码如下：
+
+   ```java
+   // 在这里以 HandlerFunctionAdapter 的 handle() 方法为例
+   
+   @Override
+   public Mono<HandlerResult> handle(ServerWebExchange exchange, Object handler) {
+       HandlerFunction<?> handlerFunction = (HandlerFunction<?>) handler;
+       ServerRequest request = exchange.getRequiredAttribute(RouterFunctions.REQUEST_ATTRIBUTE);
+       
+       // 调用对应的 handle(request) 函数进行对应的处理
+       return handlerFunction.handle(request)
+           .map(response -> new HandlerResult(handlerFunction, response, HANDLER_FUNCTION_RETURN_TYPE));
+   }
+   ```
+
+   最后对相应结果进行封装：
+
+   ```java
+   // org.springframework.web.reactive.DispatcherHandler ....
+   
+   private Mono<Void> handleResult(ServerWebExchange exchange, HandlerResult result) {
+       // 就当前上下文来讲，对应的 HandlerResultHandler 为 ServerResponseResultHandler
+       return getResultHandler(result).handleResult(exchange, result)
+           .checkpoint("Handler " + result.getHandler() + " [DispatcherHandler]")
+           .onErrorResume(ex ->
+                          result.applyExceptionHandler(ex).flatMap(exResult -> {
+                              String text = "Exception handler " + exResult.getHandler() +
+                                  ", error=\"" + ex.getMessage() + "\" [DispatcherHandler]";
+                              return getResultHandler(exResult).handleResult(exchange, exResult).checkpoint(text);
+                          }));
+   }
+   ```
+
+   
+
+   `ServerResponseResultHandler` 处理结果对应的源代码如下：
+
+   ```java
+   /*	org.springframework.web.reactive.function.server.support.ServerResponseResultHandler
+   */
+   
+   @Override
+   public Mono<Void> handleResult(ServerWebExchange exchange, HandlerResult result) {
+       ServerResponse response = (ServerResponse) result.getReturnValue();
+       Assert.state(response != null, "No ServerResponse");
+       
+       // 将响应结果写入到 response 中。。。
+       return response.writeTo(exchange, new ServerResponse.Context() {
+           @Override
+           public List<HttpMessageWriter<?>> messageWriters() {
+               return messageWriters;
+           }
+           @Override
+           public List<ViewResolver> viewResolvers() {
+               return viewResolvers;
+           }
+       });
+   }
+   ```
+
+   
