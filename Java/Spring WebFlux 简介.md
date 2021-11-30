@@ -336,9 +336,133 @@ protected HttpHandler getHttpHandler() {
     String[] beanNames = getBeanFactory().getBeanNamesForType(HttpHandler.class);
     // 省略一部分参数检测代码。。。。
 
-    // 具体参见 NettyReactiveWebServerFactory 中
+    // 一般的 BeanFactory 获取 Bean 的步骤
     return getBeanFactory().getBean(beanNames[0], HttpHandler.class);
 }
 ```
 
-经过上文的分析，在当前的是上下文环境中使用的 
+由于 Spring Boot 自动配置的存在，在创建应用时会把能够自动配置的类自动配置到 IOC 中，具体包括 `spring.factories` 文件中定义的 Bean、以及使用 `@Configuration` 注解修饰的配置类。
+
+在 `WebFlux ` 中 `HttpHandler` 的配置类的定义如下：
+
+```java
+// 此静态类位于 org.springframework.boot.autoconfigure.web.reactive.HttpHandlerAutoConfiguration 类中，这个类在 spring.factories 文件中定义为是可以自动配置的
+@Configuration(proxyBeanMethods = false)
+public static class AnnotationConfig {
+
+    private final ApplicationContext applicationContext;
+
+    public AnnotationConfig(ApplicationContext applicationContext) {
+        this.applicationContext = applicationContext;
+    }
+
+    @Bean
+    public HttpHandler httpHandler(ObjectProvider<WebFluxProperties> propsProvider) {
+        /*
+        	这里使用到了构建者模式的方式来创建对象。。。。。
+        */
+        HttpHandler httpHandler = WebHttpHandlerBuilder.applicationContext(this.applicationContext).build();
+        
+        // 省略一部分不太重要的代码。。。。。
+        
+        return httpHandler;
+    }
+}
+```
+
+`bulid()` 方法的定义如下：
+
+```java
+// 该方法定义于 org.springframework.web.server.adapter.WebHttpHandlerBuilder 中
+public HttpHandler build() {
+    WebHandler decorated = new FilteringWebHandler(this.webHandler, this.filters);
+    decorated = new ExceptionHandlingWebHandler(decorated,  this.exceptionHandlers);
+    // 因此最终生成的 HttpHandler 的具体实例化类为 HttpWebHandlerAdapter 
+    HttpWebHandlerAdapter adapted = new HttpWebHandlerAdapter(decorated);
+    
+    // 省略一部分设置属性相关的代码。。。
+
+    return (this.httpHandlerDecorator != null ? this.httpHandlerDecorator.apply(adapted) : adapted);
+}
+```
+
+
+
+### 组件的定义
+
+这里又涉及到 Spring Boot 的自动配置，`spring.factories` 文件中定义了对于 WebFlux 的自动配置类 `WebFluxAutoConfiguration`：
+
+```java
+// 该类定义于org.springframework.boot.autoconfigure.web.reactive.WebFluxAutoConfiguration
+
+@Configuration(proxyBeanMethods = false)
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.REACTIVE)
+@ConditionalOnClass(WebFluxConfigurer.class) // 有关 WebFlux 的相关配置。。。。
+// 这里引入的类是和 WebFlux 相关的主要类
+@ConditionalOnMissingBean({ WebFluxConfigurationSupport.class })
+@AutoConfigureAfter({ ReactiveWebServerFactoryAutoConfiguration.class, CodecsAutoConfiguration.class,
+                     ReactiveMultipartAutoConfiguration.class, ValidationAutoConfiguration.class,
+                     WebSessionIdResolverAutoConfiguration.class })
+@AutoConfigureOrder(Ordered.HIGHEST_PRECEDENCE + 10)
+public class WebFluxAutoConfiguration {
+    // 省略类中的内容
+}
+```
+
+主要需要关注的是 `WebFluxConfigurationSupport` 的引入，在这个类中定义了有关请求分发和处理的逻辑的类。
+
+`WebFluxConfigurationSupport` 中定义的 Bean 如下：
+
+```java
+// 此类定义于 org.springframework.web.reactive.config.WebFluxConfigurationSupport
+public class WebFluxConfigurationSupport implements ApplicationContextAware {
+    /* 
+    	这个 Bean 类似于 Spring MVC 中的 DiaptcherServlet，用于处理请求的分发以及查找对应的 handler 去处理对应的请求（“外观模式” 的使用）
+    */
+    @Bean
+    public DispatcherHandler webHandler() {
+        return new DispatcherHandler();
+    }
+    
+    /*
+    	由于篇幅问题，在此省略了一些其它必需的 Bean 的定义
+    */
+}
+```
+
+简单起见，在此仅仅只是描述一下  `WebFluxConfigurationSupport` 中定义的必需的 Bean：
+
+1. `DispatcherHandler`
+
+   用于处理请求的分发、为当前请求寻找对应的处理 Handler，类似于 Spring MVC 中的 DispatcherServlet
+
+2. `RouterFunctionMapping` 和 `RequestMappingHandlerMapping`
+
+   定义了请求和处理方法之间的对应关系，Spring WebFlux 支持使用传统的 Spring MVC 的注解方式来定义 Handler，也支持使用 `RouterFunction` 通过函数式的方式来定义对应的请求的 Handler
+
+3. `RequestMappingHandlerAdapter` 和 `HandlerFunctionAdapter`
+
+   同样地，两者是都是为了处理实际的请求而做的适配，和 Spring MVC 中对 Handler 的适配是一样的。由于 Spring WebFlux 支持使用 `@RequestMapping` 的方式来定义请求，因此也必须对这种类型的方式定义对应的适配器。
+
+4. `WebSocketHandlerAdapter`
+
+   对于 `WebSocket` 的支持。。。。
+
+5. `ResponseEntityResultHandler`、`ResponseBodyResultHandler` 、`ViewResolutionResultHandler` 以及 `ServerResponseResultHandler`
+
+   `ResponseEntityResultHandler`、`ResponseBodyResultHandler` 和 `ServerResponseResultHandler` 都是针对 Rest 的响应结果（`Http`）；`ViewResolutionResultHandler` 则是相当于返回的是一个 `View`（MVC 中的 `View`）即 “视图”
+
+   
+
+### 整合 Handler
+
+有了这些组件之后，值得关心的地方就是 `.*Adapter` 和对应的 Handler 之间的连接，即 Adapter 是如何调用 Handler的
+
+首先，经过一系列的 debug 操作，得到 WebFlux 对于一个一般的 Http 请求的处理链如下：
+
+<img src="https://s6.jpg.cm/2021/11/30/LRwdPD.png" />
+
+
+
+
+
