@@ -1,5 +1,9 @@
 # Spring WebFlux 简介
 
+**本文基于 Spring Boot 2.6.0**
+
+
+
 基于之前提到的 `Reactor` 的出现，使得编写响应式程序成为可能。为此，Spring 的开发团队决定添加有关 `Reactor` 模型的网络层。这样做的话将会对 Spring MVC 作出许多重大的修改，因此 Spring 的研发团队决定开发一个单独的响应式处理框架，随之，Spring WeFlux 就这么诞生了。
 
 Spring WebFlux 与 Spring MVC 的关系如下：
