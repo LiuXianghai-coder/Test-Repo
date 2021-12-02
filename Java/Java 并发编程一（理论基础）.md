@@ -1,6 +1,6 @@
 # Java 并发编程一（理论基础）
 
-与计算机基础相关的线程的知识在此略过
+**与计算机基础相关的线程的知识在此略过**
 
 
 
@@ -109,3 +109,121 @@ public class Child extends Parent {
 
 
 ## 对象的共享
+
+### 可见性
+
+依旧是在 `JMM` 中定义的一些偏序关系：
+
+> 程序顺序规则：如果程序中操作 A 在操作 B 之前，那么在线程中操作 A 将在 操作 B 之前执行
+>
+> 监视器锁规则：在监视器锁上的解锁操作必须在同一个监视器锁上的加锁操作之前执行
+>
+> volatile 变量规则：对 volatile 变量的写入操作必须在对该变量的读操作之前执行（原子变量与 volatile 变量在读操作和写操作上有着相同的语义）
+>
+> 线程启动规则：在线程上对 `Thread.start()` 的调用必须在该线程中执行任何操作之前执行
+>
+> 线程结束规则：线程中的任何操作都必须在其他线程检测到该线程已经结束之前执行，或者从 `Thread.join()` 中成功返回，或者在调用 `Thread.isAlive()` 中返回 `false`
+>
+> 中断规则：当一个线程在另一个线程上调用 `interrupt` 时，必须在被中断线程检测到 `interrupt` 之前执行（或者抛出 `InterruptException`，或者调用 `isInterrupted` 和 `interrupted`）
+>
+> 终结器规则：对象的构造函数必须在启动该对象的终结器之前执行
+>
+> 传递性：如果操作 A 在操作 B 之前执行，并且 B操作在 C操作之前执行，那么操作 A 必须在 操作 C 之前执行
+
+除了上述描述的规则，在一个 Java 程序中，在 `JVM`、处理器以及运行运行时都可能对操作的执行顺序进行一些意想不到的调整，这也被称为 “指令重排序”，要正确使用 `JMM` 定义的相关的偏序规则，才能使得程序按照正常的逻辑运行
+
+
+
+### 最低安全性
+
+当线程在没有进行同步的情况下，可能会读取到一个失效值，但是这个失效的值至少也是之前某个线程设置的值，而不是一个随机值。这种保证也被成为 “最低安全性”
+
+在大多数的情况下，“最低安全性” 总是适用的，但是存在这么一个例外：没有使用 `volatile` 修饰的 64 位数值变量（`double` 和 `long`）
+
+`JMM` 要求，变量的读取操作和写入操作都必须是原子操作，但是对于非 `volatile` 修饰的 `long` 和 `double` 变量，`JVM` 允许将 64 位的写操作和读操作分解为两个 32 位的数值的操作，在这种情况下是不满足 “最低安全性” 的
+
+为了解决这个问题，可以通过使用 `volatile` 关键字修饰对应的变量，或者通过加锁的方式来保护对应的变量的状态，这是因为`volatile` 可以保证对一个变量的写入操作发生在其它的线程操作读取它之前；加锁则使得对于变量的操作发生在另一个线程操作这个变量之前，加锁是更加强大的 `volatile` （`JMM` 的偏序关系）
+
+
+
+### 对象的发布与逸出
+
+> “对象的发布” 指的是使得对象能够在当前作用域之外的代码中使用，例如，将一个指向该对象的引用保存到其它代码可以访问的地方，或者在一个非私有的方法中返回该引用，或者将引用传递到其它类的方法中。
+>
+> “对象的逸出” 是指某个不应该发布的对象被发布
+
+以下面的例子为例：
+
+```java
+// 一个不安全的发布示例
+public class UnsafePublisher {
+    private String[] states = new String[] {
+        "Apple", "Orange", "Strawberry", "Watermelon"
+    };
+    
+    /* 
+    	通过 getStates() 方法就可以获取到内部的 states 属性，调用这个方法的任何客户端都可以直接对 
+    	states 的内容进行修改，这种修改是线程非安全的
+    */
+    public String[] getStates() {return this.states;}
+}
+```
+
+以上的示例是一个显式的 “移除” 情况，值得一提的还有隐式地发布 `this`  对象（当前实例对象）
+
+```java
+public class ThisEscape {
+    public ThisEscape(EventSource source) {
+        /*
+        	在构造函数中发布 EventListener 时，也会隐式地发布 this，
+        	因为在内类 EventListener 中包含了对当前 ThisEscape 对象的引用
+        	（非静态内部类的实例对象会带有外部的 this 引用，具体可以查看 《Effective Java》有更加详细的说明）
+        */
+        
+        /* 
+        	这里存在的问题是在 ThisEscape 对象在构造过程中就已经逸出了，
+        	因此外部的调用有可能会访问到未初始化完成的 this 对象
+        */
+        source.registerListener(new EventListener() {
+            public void onEvent(Event e) {
+                doSomething(e);
+            }
+        });
+    }
+
+    void doSomething(Event e) {}
+    interface EventSource {void registerListener(EventListener e);}
+    interface EventListener {void onEvent(Event e);}
+    interface Event {}
+}
+```
+
+一种常见的错误就是在构造函数中启动一个线程，这样会导致这个 `this` 对象被新创建的线程共享，新启动的线程将会看到一个没有构造完全的实例对象！！！
+
+同样，如果在构造函数中调用了一个可改写的实例方法（既不是私有方法，也不是终结方法）都会导致 `this` 对象的逸出
+
+如果想要在构造函数中启动一个线程或者注册事件监听，那么最好的解决方案为将当前对象的构造函数设计为私有的，通过定义一个工厂方法来获取一个新的实例对象，就能够有效地避免这个问题：
+
+```java
+public class SafeListener {
+    private final EventListener listener;
+
+    private SafeListener() {
+        listener = new EventListener() {
+            public void onEvent(Event e) {
+                doSomething(e);
+            }
+        };
+    }
+    
+    // 通过这种方式，就不会将构造了一半的实例对象发布到别的地方了
+    public static SafeListener newInstance(EventSource source) {
+        SafeListener safe = new SafeListener();
+        source.registerListener(safe.listener);
+        return safe;
+    }
+    
+    // 省略部分接口的定义。。。。
+}
+```
+
