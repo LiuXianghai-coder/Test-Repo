@@ -36,6 +36,7 @@
 
   > 当使用多个原子操作对象通过组合的方式来构建 “线程安全” 对象时，只有在单个的原子操作中同时更新所有的状态才能确保所构成的类是 “线程安全” 的
 
+- 不可变对象
 
 
 ### 加锁机制
@@ -227,3 +228,166 @@ public class SafeListener {
 }
 ```
 
+
+
+## 线程封闭
+
+当访问共享的可变数据时，通常都需要使用锁来进行同步，以维持数据状态变化的可见性。除了使用锁来同步的可变数据的方式之外，另一种保护可变数据的方式就是使得数据不共享，每个线程访问自己的数据，这样就从根本上解决了数据在多个线程之间不安全的访问的问题。这中技术也被称为 “线程封闭”， 这是实现线程安全性的最简单的方式之一
+
+> 当某个对象封闭在一个线程中时，“线程封闭” 将自动实现线程安全性，即使被封闭的对象本身不是线程安全的
+
+实例：`JDBC` 的 `Connection` 对象，`JDBC` 规范并不要求 `Connection` 对象是线程安全的，因为每个连接在同一时刻只会有一个线程会获取到连接，在处理完对应的任务之后就会将这个释放这个连接，整个过程都只会有一个线程参与，因此并不要求 `Connection` 的实现必须是线程安全的。当然，如果使用的是线程池的话，那么线程池必须是线程安全的，因为线程池总会被多个线程同时访问
+
+
+
+### Ad-hoc 线程封闭
+
+> Ad-hoc 线程封闭是指，维护线程封闭的职责完全由程序实现来承担
+
+Ad-hoc 线程封闭一般是脆弱的，因为没有任何一种语言特性，能够将对象封闭到目标线程上。在使用 Ad-hoc 线程封闭技术时，通常情况下都是需要将一个系统的子系统设计为单线程子系统，而单线程子系统提供的简便性要胜过 Ad-hoc 线程封闭的脆弱性
+
+
+
+`volatile` 变量的线程封闭：如果能够确保只有单个线程对共享的 `volatile` 变量执行写入操作，那么就可以安全地在这些共享变量之间执行 “读取—写入—读取” 操作，请回忆一下 `JMM` 提供的偏序规则，对 `volatile` 变量的写入操作将会发生在对该变量的读取操作之前，因此在只有单个线程的上下文环境中，相当于使用到了 “线程封闭”
+
+
+
+由于 Ad-hoc 线程封闭的脆弱性，因此一般情况下不要使用这种线程封闭方式
+
+
+
+### 栈封闭
+
+> 栈封闭是线程封闭的一种特例，在栈封闭中，只能通过局部变量来访问对象。局部变量的固有属性之一就是封闭在执行线程中，它们位于执行线程的栈中，其它线程无法访问这个栈
+
+具体的一个实例如下：
+
+```java
+// 该源代码来自 《Java 并发编程实战》3-9
+
+/*
+	由于整个方法的所有局部变量都封闭在方法中，因此每个访问该方法的线程都会有一个独立的执行栈来执行对应的逻辑
+	由于将传入的参数对象生成了一个对应的副本，因此产生由于多个线程同时修改参数对象而产生的缓存一致性问题
+*/
+public int loadTheArk(Collection<Animal> candidates) {
+    SortedSet<Animal> animals;
+    int numPairs = 0;
+    Animal candidate = null;
+    
+    /*
+    	由于栈封闭的存在，即使 TreeSet 不是线程安全的，但是由于在当前执行的方法栈中只会有一个线程来访问这个对象，因此这个 loadTheArk 方法依旧是线程安全的
+    	如果 animals 逸出当前方法的作用域范围，将会导致栈封闭被破坏，从而失去线程安全性的保障
+    */
+    animals = new TreeSet<>(new SpeciesGenderComparator());
+    
+    /*
+    	将传入的参数放入到一个新的容器中，这样就能防止访问参数对象而修改对应的状态
+    	维护线程的安全性
+    */
+    animals.addAll(candidates);
+    for (Animal a : animals) {
+        if (candidate == null || !candidate.isPotentialMate(a))
+            candidate = a;
+        else {
+            ark.load(new AnimalPair(candidate, a));
+            ++numPairs;
+            candidate = null;
+        }
+    }
+    return numPairs;
+}
+```
+
+
+
+### `ThreadLocal` 对象
+
+维持线程封闭的一种更好的方式是使用 `ThreadLoacal` 对象，这个类能够使得线程中的某个至能够与保存值的对象关联起来`ThreadLocal` 对象提供了 `get` 和 `set` 方法，这些方法为每个使用该变量的线程都存有一个独立的副本，因此 `get` 方法总能得到最近执行线程在调用 `set` 方法时设置的最新值
+
+使用场景：
+
+1. 防止对可变的单例对象或局部变量进行共享
+2. 当频繁执行的操作需要一个临时对象，而又想避免每次执行时都重新创建一个实例对象
+
+
+
+## 不可变对象
+
+满足同步需求的另一种方法就是使用不可变对象（Immutable Object），在领域驱动设计中也被称为 `Value Object`
+
+如果一个对象在被创建之后就不能被修改，那么这个对象就被称为 “不可变对象”
+
+一个对象是否是不可变对象，需要同时满足以下三个条件：
+
+1. 对象创建之后就不能被修改
+2. 对象的所有域都是使用 `final` 关键字修饰的（`String` 除外）
+3. 对象是被正常构建的（对象创建期间，`this` 没有逸出）
+
+
+
+## 安全地发布对象
+
+一个不安全的发布对象的实例：
+
+```java
+public class Holder {
+    private int n;
+
+    public Holder(int n) {
+        this.n = n;
+    }
+
+    public void assertSanity() {
+        if (n != n)
+            throw new AssertionError("This statement is false.");
+    }
+}
+```
+
+乍一看这个类没什么问题，但是在某些情况下执行 `assertSanity()`  方法时将会抛出 `AssertionError`，这是因为在构造 `Holder` 对象之前，由于缺乏足够的可见机制，使得第一次读取到的 `n` 和第二次读取到的 `n` 不一致，从而抛出异常
+
+
+
+如果要安全地发布一个对象，可以考虑使用以下几种方案：
+
+1. 在静态代码块中初始化一个对象引用（在 `JVM` 初始化 `Class` 对象时完成）
+2. 将对象的引用使用 `volatile` 修饰或者 `AtomicReference` 对象中
+3. 使对象的引用保存到某个正确构造对象的 `final` 类型域中
+4. 将对象的引用保存到一个由锁保护的域中
+
+以上几种方案（除静态代码块外）都是基于 `JMM` 的偏序规则来保证实例化的对象的可见性，使用静态代码块的方式是通过底层的 `JVM` 来保证可见性的。
+
+一个实例如下：
+
+```java
+public class Holder {
+    private final static Object object = new Object();
+}
+```
+
+上面的实例就是通过在静态代码块中初始化对象来实现对象的可见性的，对应的真实的代码如下：
+
+```asm
+Compiled from "Holder.java"
+public class Holder {
+  public Holder();
+    Code:
+       0: aload_0
+       1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+       4: return
+
+  static {};
+    Code:
+       0: new           #2                  // class java/lang/Object
+       3: dup
+       4: invokespecial #1                  // Method java/lang/Object."<init>":()V
+       7: putstatic     #3                  // Field object:Ljava/lang/Object;
+      10: return
+}
+```
+
+
+
+参考：
+
+<sup>[1]</sup> 《Java 并发编程实战》Brain Goetz，Tim Peierl 等
