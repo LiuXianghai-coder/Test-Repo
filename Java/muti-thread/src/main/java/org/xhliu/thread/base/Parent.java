@@ -18,7 +18,7 @@ public class Parent {
     }
 
     public static void main(String[] args) {
-        Holder holder = new Holder(10);
-        holder.assertSanity();
+        Thread thread = new Thread(() -> {});
+        thread.start();
     }
 }
