@@ -42,7 +42,7 @@
 
 
 
-### 等待队列
+### 等待队列<sup>[2]</sup>
 
 <img src="https://img-blog.csdn.net/20180701221233161?watermark/2/text/aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3BhbmdlMTk5MQ==/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70" />
 
@@ -68,7 +68,35 @@ thread.setDaemon(true); // 将当前的线程设置为 Deamon 线程
 
 
 
-## 线程中断
+## 线程的取消与关闭<sup>[1]</sup>
+
+`Java` 没有显式的方式直接去停止一个正在运行的线程，尽管 `Thread` 类存在 `stop` 和 `suspend` 等方法显式地终止线程，但是这些方法都存在严重的缺陷，因此应当避免使用这些方法。
+
+`Java` 提供了一种中断的方式来取消一个线程，这是一种协作机制，即使一个线程向另一个线程发送中断信号，从而停止另一个线程的工作
+
+如果一个线程能够在某个操作正常完成之前就能够将其置入 “完成” 状态，那么这个线程就被称为是 “可取消的”。
+
+取消一个正在运行的线程有以下几种情况：
+
+- 用户取消请求
+
+  使用 `JMX` 或其它显式的取消操作
+
+- 有时间限制的操作
+
+  比如，如果一个服务端程序在 3s 的时间内都没能做出响应，那么就丢弃这个请求
+
+- 错误
+
+  如果由于底层的某些硬件限制，导致出现错误的情况。如：内存已满、磁盘已满等
+
+- 关闭
+
+  当一个程序或者服务关闭之后，必须对正在处理和等待的线程执行对应的操作，使得程序能够正常退出。在这个过程中，某些正在等待的线程可能会被取消
+
+  
+
+### 线程中断
 
 与线程中断相关的方法如下：
 
@@ -87,13 +115,83 @@ public class Thread {
 
 线程中断是一种协作机制，线程可以通过这种机制来通知另一个线程，告诉它在合适或者可能的情况下停止当前工作，并转而执行其它的工作。
 
+
+
+<br />
+
+> 在 Java 的 API 规范中，并没有将中断与任何取消语义关联起来，但实际上，如果在取消之外的其它操作中使用中断，那么都是不合适的，并且很难支撑起更大的应用
+
+
+
+<br />
+
 与一般的设置一个 `boolean` 位来自定义中断不同，自定义的中断在某些情况下可能不能按照预期的工作，这是因为：有个阻塞库的 API 在调用时将会导致自定义的取消操作无法执行，从而使得整个操作一直都是阻塞的。在这种情况下，使用线程中将能够解决这一类问题，因为一般的阻塞库 API 都会检查当前线程是否已经被中断，从而终止某些操作
 
-线程中断的本质只是设置线程的中断标志，大部分的的阻塞库 API 对于中断的处理如下：**清除当前线程的中断标记**，然后抛出 `InterruptedException`。这是因为：任务不会在自己拥有的线程中进行，而是在某个服务（如线程池）中进行，对于中断的响应应当是通知调用者执行自定义的后续处理，而不是由自己处理，这就是为什么大部分的阻塞库函数都只是抛出 `InterruptedException` 异常的原因
+<br />
+
+线程中断的本质只是设置线程的中断标志，大部分的的阻塞库 API 对于中断的处理如下：**清除当前线程的中断标记**，然后抛出 `InterruptedException`。这是因为：每个新创建的线程都不是在自己的线程环境下运行的，它只能在父线程服务（如线程池）中进行，对于中断的响应应当是通知调用者执行自定义的后续处理，而不是由自己处理，这就是为什么大部分的阻塞库函数都只是抛出 `InterruptedException` 异常的原因
+
+<br />
+
+> 调用 interrupt 并不意味着立即停止目标线程正在执行的工作，而只是传递了请求中断的消息
 
 
 
-对于线程取消和关闭是一个比较复杂的内容，将会在后续文章中再做进一步的介绍
+<br />
+
+在使用静态的 `interrupted()` 方法时要格外小心，因为它会清除当前线程的中断状态。如果在调用 `interrupted()` 时返回了 `true`，那么除非希望屏蔽这个中断，否则应当再次调用 `Thread` 对象的实例方法 `interrupt()` 来恢复线程的中断状态。具体的示例如下：
+
+```java
+import java.util.concurrent.*;
+// 此代码来自 《Java 并发编程实战》
+public class TaskRunnable implements Runnable {
+    BlockingQueue<Task> queue;
+
+    public void run() {
+        try {
+            processTask(queue.take());
+        } catch (InterruptedException e) {
+            /*
+            	由于 BlockingQueue 的 take 方法在响应中断时会清除线程的中断状态，
+            	因此在捕获到这个异常时需要再次将当前的线程的中断状态恢复
+            */
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    void processTask(Task task) {
+    }
+
+    interface Task {
+    }
+}
+```
+
+
+
+### 响应中断
+
+一般响应中断主要有以下两种方式：
+
+- 传递异常，使得调用该方法的方法也变成可中断的阻塞方法
+
+  ```java
+  BlockingQueue<Task> queue;
+  // 抛出 InterruptedException，使得 getNextTask 成为可中断的阻塞方法
+  public Task getNextTask() throws InterruptedException {
+      return queue.take();
+  }
+  ```
+
+  
+
+- 恢复中断状态，使得调用栈中的上层代码能够对其进行处理
+
+  如果不想或者无法传递 `InterruptedException`，那么恢复线程的中断状态将是一个可选的方案
+
+<br />
+
+> 只有在实现了中断策略的代码才能屏蔽中断请求，在常规的任务和代码库中都不应该屏蔽中断请求
 
 
 
@@ -218,17 +316,77 @@ public class ShutDown {
 
 ### 等待/通知机制
 
-- `pull` 模式
+- 等待方（消费者）
 
-  一般的 `pull` 模式如下：
+  1. 获取对象的锁
+  2. 如果条件不满足，则调用锁对象的 `wait()` 方法
+  3. 条件满足则执行对应的逻辑
+
+  伪代码形式如下：
 
   ```java
-  while (value != desire) {
-      Thread.sleep(1000);
+  synchronized (lock) {
+      while (condition) {
+          lock.wait();
+      }
+      // 对应的处理逻辑
   }
-  // do something
   ```
 
-  这中方式将会消耗大量的资源，而且线程无法即时地获取到更新的值
+  
 
-- `push` 模式
+- 通知方（生产者）
+
+  1. 获取对象的锁
+  2. 改变原有条件
+  3. 唤醒所有在等待队列中的线程
+
+  伪代码的形式如下：
+
+  ```java
+  synchronized (lock) {
+      // 改变等待方的条件
+      lock.notifyAll(); // 避免使用 notify，因为它会随机唤醒一个在等待队列中的线程
+  }
+  ```
+
+
+
+### join 方法
+
+在 JDK 1.7 中的描述如下：<sup>[3]</sup>
+
+> **Waiting for the finalization of a thread**
+>
+> **In some situations, we will have to wait for the finalization of a thread. For example, we may have a program that will begin initializing the resources it needs before proceeding with the rest of the execution. We can run the initialization tasks as threads and wait for its finalization before continuing with the rest of the program. For this purpose, we can use the join() method of the Thread class. When we call this method using a thread object, it suspends the execution of the calling thread until the object called finishes its execution.**
+
+大概意思：主线程等待子线程的终止。如果在主线程的代码块中，遇到了 `t.join()` ，那么当前执行的线程就需要等待 `t` 执行完成之后才能继续执行。
+
+`join` 方法的本质是通过锁对象的 `wait()` 方法来实现的（即 “等待/通知” 机制），对应的源代码如下：
+
+```java
+public final synchronized void join(long millis)
+    throws InterruptedException {
+    /* 
+     isAlive() 用于判断当前的线程是否存活，
+     这里的主要目的是避免由于锁对象的虚假唤醒带来的影响
+    */
+    while (isAlive()) {
+        wait(0);
+    }
+    
+    // 省略一部分不太重要的代码
+}
+```
+
+由于是调用锁对象的 `wait()` 方法，因此 `join()` 方法会释放当前持有的锁
+
+
+
+参考：
+
+<sup>[1]</sup> 《Java 并发编程实战》
+
+<sup>[2]</sup> https://blog.csdn.net/pange1991/article/details/53860651
+
+<sup>[3]</sup> https://www.cnblogs.com/duanxz/p/5038471.html
