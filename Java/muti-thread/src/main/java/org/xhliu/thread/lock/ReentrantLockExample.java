@@ -8,6 +8,11 @@ public class ReentrantLockExample {
     static int value = 0;
 
     public static void main(String[] args) {
+        Thread[] threads = new Thread[10];
+        for (int i = 0; i < 10; ++i) {
+            threads[i] = new Thread(new Demo());
+            threads[i].start();
+        }
     }
 
     static class Demo implements Runnable {
@@ -16,6 +21,9 @@ public class ReentrantLockExample {
             lock.lock();
             try {
                 value++;
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             } finally {
                 lock.unlock();
             }

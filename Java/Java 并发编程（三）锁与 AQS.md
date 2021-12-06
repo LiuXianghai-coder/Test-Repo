@@ -1,5 +1,9 @@
 # Java 并发编程（三）锁与 AQS
 
+**本文 JDK 对应的版本为 JDK 13**
+
+<br />
+
 由于传统的 `synchronized` 关键字提供的内置锁存在的一些缺点，自 JDK 1.5 开始提供了 `Lock` 接口来提供内置锁不具备的功能。显式锁的出现不是为了替代 `synchronized`提供的内置锁，而是当内置锁的机制不适用时，作为一种可选的高级功能
 
 <br />
@@ -201,7 +205,7 @@ void release () {
       volatile Node next;
       // 当前节点存储的线程
       volatile Thread thread;
-      // 链接到下一个等待条件的节点，或者是特殊值为 SHARED 的节点
+      // 链接到下一个等待条件的节点（条件队列），或者是特殊值为 SHARED 的节点
       Node nextWaiter;
   }
   ```
@@ -214,6 +218,361 @@ void release () {
 
 
 
+#### 具体分析
+
+- `acquire(int arg)`
+
+	该方法位于 `java.util.concurrent.locks.AbstractQueuedSynchronizer` 中，具体对应的源代码如下：
+
+	```java
+	public final void acquire(int arg) {
+	  /*
+	  	如果 tryAcquire(arg) 成功了（即尝试获取锁成功了），那么就直接获取到了锁
+	  	否则，就需要调用 acquireQueued 方法将这个线程放入到阻塞队列中
+	  */
+	  if (!tryAcquire(arg) &&
+	      // 如果尝试获取锁没有成功，那么久将当前的线程挂起，放入到阻塞队列中
+	      acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
+	    selfInterrupt();
+	}
+	```
+
+	`tryAcquire(arg)` 对应的源代码如下：
+
+	```java
+	// AbstractQueuedSynchronizer 中定义的。。。
+	protected boolean tryAcquire(int arg) { // 在 AbstractQueuedSynchronizer 中定义的模版方法，需要具体的子类来实现
+	  throw new UnsupportedOperationException();
+	}
+	```
+
+	为了简化这个过程，以 `ReentrantLock` 的 `FairSync` 为例查看具体的实现：
+
+	```java
+	// ReentrantLock.FairSync。。。
+	@ReservedStackAccess
+	/*
+		尝试直接获取锁,返回值为 boolean,表示是否获取到锁
+		返回为 true: 1.没有线程在等待锁 2.重入锁,线程本来就持有锁,因此可以再次获取当前的锁
+	*/
+	protected final boolean tryAcquire(int acquires) {
+	  final Thread current = Thread.currentThread();
+	  int c = getState();
+	  if (c == 0) { // state 为 0 表示此时没有线程持有锁
+	    /*
+	    	当前的锁为公平锁(FairSync)，因此即使当前锁是可以获取的，
+	    	但是需要首先检查是否已经有别的线程在等待这个锁
+	    */
+	    if (!hasQueuedPredecessors() &&
+	        /*
+	        	如果没有线程在等待，那么则尝试使用 CAS 修改状态获取锁，如果成功，则获取到当前的锁
+	        	如果使用 CAS 获取锁失败，那么就说明几乎在同一时刻有个线程抢先获取了这个锁
+	        */
+	        compareAndSetState(0, acquires)) {
+	      // 到这里就已经获取到锁了，标记一下当前的锁，表示已经被当前的线程占用了
+	      setExclusiveOwnerThread(current);
+	      return true;
+	    }
+	  }
+	  /*
+	  	如果已经有线程持有了当前的锁，那么首先需要检测一下是不是当前线程持有的锁
+	  	如果是当前线程持有的锁，那么就是一个重入锁，需要对 state 变量 +1
+	  	否则，当前的锁已经被其它线程持有了，获取失败
+	  */
+	  else if (current == getExclusiveOwnerThread()) {
+	    int nextc = c + acquires;
+	    if (nextc < 0)
+	      throw new Error("Maximum lock count exceeded");
+	    setState(nextc);
+	    return true;
+	  }
+	  return false;
+	}
+	```
+
+	现在再回到 `acquire` 方法，如果 `trAcquire(arg)` 成功获取到了锁，那么就是成功获取到了锁，直接返回即可；如果 `tryAcquire(arg)` 获取锁失败了，则再执行 `acquireQueued` 方法将当前线程放入到阻塞队列尾部
+
+	在那之前，首先会执行 `acquireQueued` 方法中调用的 `addWaiter(Node.EXCLUSIVE)` 方法，具体的源代码如下：
+
+	```java
+	// AbstractQueuedSynchronizer
+	
+	/*
+		这个方法的作用是将当前的线程结合给定的 mode 组合成为一个 Node，以便插入到阻塞队列的末尾
+		结合当前的上下文，传入的 mode 为 Node.EXCLUSIVE，即独占锁的模式
+	*/
+	private Node addWaiter(Node mode) {
+	  Node node = new Node(mode);
+	
+	  for (;;) { // 注意这里的永真循环。。。
+	    Node oldTail = tail;
+	    /*
+	    	如果尾结点不为 null，则使用 CAS 的方式将 node 插入到阻塞队列的尾部
+	    */
+	    if (oldTail != null) {
+	      node.setPrevRelaxed(oldTail); // 设置当前 node 的前驱节点为原先的 tail 节点
+	      if (compareAndSetTail(oldTail, node)) { // CAS 的方式设置尾结点
+	        oldTail.next = node;
+	        return node; // 返回当前的节点 
+	      }
+	    } else {
+	      // 如果当前的阻塞队列为空的话，那么首先需要初始化阻塞队列
+	      initializeSyncQueue();
+	    }
+	  }
+	}
+	
+	// 初始化阻塞队列对应的源代码如下
+	private final void initializeSyncQueue() {
+	  Node h;
+	  // 依旧是使用 CAS 的方式，这里的 h 的初始化为延迟初始化
+	  if (HEAD.compareAndSet(this, null, (h = new Node())))
+	    tail = h;
+	}
+	```
+
+	之后就是执行 `acquireQueued` 方法了，对应的源代码如下：
+
+	```java
+	// AbstractQueuedSynchronizer
+	
+	/*
+		此时的参数 node 已经经过 addWaiter 的处理，已经被添加到阻塞队列的末尾了
+		如果 acquireQueued(addWaiter(Node.EXCLUSIVE), arg) 调用之后返回 true，那么就会执行 acquire(int arg) 方法中的 selfInterrupt() 方法
+	
+		这个方法是比较关键的部分，是真正处理线程挂起，然后被唤醒去获取锁，都在这个方法中定义
+	*/
+	final boolean acquireQueued(final Node node, int arg) {
+	  boolean interrupted = false;
+	  try {
+	    for (;;) { // 注意这里的永真循环
+	      // predecessor() 返回的是当前 node 节点的前驱节点
+	      final Node p = node.predecessor();
+	
+	      /*
+	      	p == head 表示当前的节点虽然已经进入到了阻塞队列，但是是阻塞队列中的第一个元素（阻塞队列不包含 head 节点）
+	      	因此当前的节点可以尝试着获取一下锁，这是由于当前的节点是阻塞队列的第一个节点，而 head 节点又是延迟初始化的，在这种情况下是有可能获取到锁的
+	      */
+	      if (p == head && tryAcquire(arg)) {
+	        setHead(node);
+	        p.next = null; // help GC
+	        return interrupted;
+	      }
+	
+	      /*
+	      	如果执行到这个位置，则说明 node 要么就不是队头元素，要么就是尝试获取锁失败
+	      */
+	      if (shouldParkAfterFailedAcquire(p, node))
+	        interrupted |= parkAndCheckInterrupt();
+	    }
+	  } catch (Throwable t) {
+	    cancelAcquire(node);
+	    if (interrupted)
+	      selfInterrupt();
+	    throw t;
+	  }
+	}
+	
+	// parkAndCheckInterrupt() 对应的源代码
+	/*
+		该方法的主要任务是挂起当前线程，使得当前线程在此等待被唤醒
+	*/
+	private final boolean parkAndCheckInterrupt() {
+	  LockSupport.park(this); // 该方法用于挂起当前线程
+	  return Thread.interrupted();
+	}
+	```
+
+	`shouldParkAfterFailedAcquire(p, node)` 对应的源代码如下：
+
+	```java
+	// AbstractQueuedSynchronizer
+	
+	/*
+		这个方法的主要任务是判断当前没有抢到锁的线程是否需要阻塞
+		第一个参数表示当前节点的前驱节点，第二个参数表示当前线程的节点
+	*/
+	private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
+	  int ws = pred.waitStatus;
+	  // 前驱节点正常，则需要阻塞当前线程节点
+	  if (ws == Node.SIGNAL)
+	    /*
+	    * This node has already set status asking a release
+	    * to signal it, so it can safely park.
+	    */
+	    return true;
+	  
+	  /*
+	  	前驱节点的状态值大于 0 表示前驱节点取消了排队
+	  	如果当前的节点被阻塞了，唤醒它的为它的前驱节点，因此为了使得能够正常工作，
+	  	需要将当前节点的前驱节点设置为一个正常的节点，使得当前的节点能够被正常地唤醒
+	  */
+	  if (ws > 0) {
+	    /*
+	    * Predecessor was cancelled. Skip over predecessors and
+	    * indicate retry.
+	    */
+	    do {
+	      node.prev = pred = pred.prev;
+	    } while (pred.waitStatus > 0);
+	    pred.next = node;
+	  } else {
+	    /*
+	    * waitStatus must be 0 or PROPAGATE.  Indicate that we
+	    * need a signal, but don't park yet.  Caller will need to
+	    * retry to make sure it cannot acquire before parking.
+	    */
+	    
+	    /*
+	    	如果不满足以上两个条件，那么当前的 ws 的状态就只能为 0， -2， -3 了
+	    	在当前的上下文环境中，ws 的状态为 0，因此这里就是将当前节点的前驱节点的 ws 值设置为 Node.SIGNAL
+	    */
+	    pred.compareAndSetWaitStatus(ws, Node.SIGNAL);
+	  }
+	  
+	  /*
+	  	本次执行到此处会返回 false，而 acquireQueued 中的永真循环将会再次进入这个方法
+	  	由于上面的一系列操作，当前节点的前驱节点一定是正常的 Node.SIGNAL，因此会在第一个 if 语句中直接返回 true
+	  */
+	  return false;
+	}
+	```
+
+	
+
+- `release(int arg)`
+
+	该方法用于释放当前获取到的锁，对应的具体的源代码如下：
+
+	```java
+	// AbstractQueuedSynchronizer
+	
+	// 释放在独占模式中获取到的锁
+	public final boolean release(int arg) {
+	  if (tryRelease(arg)) {
+	    Node h = head;
+	    if (h != null && h.waitStatus != 0)
+	      unparkSuccessor(h);
+	    return true;
+	  }
+	  return false;
+	}
+	```
+
+	`tryRelease(arg)` 对应的源代码如下：
+
+	```java
+	// AbstractQueuedSynchronizer
+	
+	// 很明显，这也是一个模版方法，需要具体子类来定义对应的实现
+	protected boolean tryRelease(int arg) {
+	  throw new UnsupportedOperationException();
+	}
+	```
+
+	依旧以 `ReentrantLock` 为例，查看一下 `tryRelease(int arg)` 的具体实现
+
+	```java
+	// ReentrantLock.Sync
+	
+	@ReservedStackAccess
+	protected final boolean tryRelease(int releases) {
+	  int c = getState() - releases;
+	  if (Thread.currentThread() != getExclusiveOwnerThread())
+	    throw new IllegalMonitorStateException();
+	
+	  boolean free = false; // 是否已经完全释放锁的标记
+	  
+	  // 如果 c > 0，则说明获取的锁是一个重入锁，还没有完全释放
+	  if (c == 0) {
+	    free = true;
+	    setExclusiveOwnerThread(null);
+	  }
+	  setState(c);
+	  return free;
+	}
+	```
+
+	再回到 `release(int arg)` 方法中，如果是已经完全释放了锁，则执行后面的 `return false` 语句，执行结束。如果没有完全释放锁，那么则会继续执行 `unparkSuccessor(h)` 方法，对应的源代码如下：
+
+	```java
+	// AbstractQueuedSynchronizer
+	
+	// 唤醒后继节点
+	private void unparkSuccessor(Node node) {
+	  /*
+	  * If status is negative (i.e., possibly needing signal) try
+	  * to clear in anticipation of signalling.  It is OK if this
+	  * fails or if status is changed by waiting thread.
+	  */
+	  int ws = node.waitStatus;
+	  if (ws < 0)
+	    node.compareAndSetWaitStatus(ws, 0);
+	
+	  /*
+	  * Thread to unpark is held in successor, which is normally
+	  * just the next node.  But if cancelled or apparently null,
+	  * traverse backwards from tail to find the actual
+	  * non-cancelled successor.
+	  */
+	  
+	  /*
+	  	唤醒后继节点，但是可能后继节点取消了等待（即 waitStatus = Node.CANCELLED）
+	  	在这种情况下，将会从队尾向前查找，找到最靠近 head 的 waitStatus < 0 的节点
+	  */
+	  Node s = node.next;
+	  if (s == null || s.waitStatus > 0) {
+	    s = null;
+	    // 从队尾开始向前查找，找到第一个合适的节点
+	    for (Node p = tail; p != node && p != null; p = p.prev)
+	      if (p.waitStatus <= 0) // 可能排在前面的节点取消的可能性更大
+	        s = p;
+	  }
+	  
+	  if (s != null) // 唤醒这个合适的节点对应的线程
+	    LockSupport.unpark(s.thread);
+	}
+	```
+
+	在释放了所有的锁之后，唤醒后继的一个还没有被取消的线程节点，然后唤醒它，唤醒之后的节点将恢复原来在 `parkAndCheckInterrupt()` 中的执行状态
+
+	```java
+	private final boolean parkAndCheckInterrupt() {
+	  LockSupport.park(this); // 被唤醒后将继续执行后面的代码
+	  return Thread.interrupted(); // 此时应当是没有被中断的
+	}
+	```
+
+	再回到原先的 `acquireQueued(node, arg)` 方法，此时由于 head 已经释放了锁，而当前的 node 节点是距离 head 最近的一个有效的线程节点，因此它能够获取到锁，线程在获取锁之后再继续执行对应的代码逻辑
+
+	
+
+#### `ConditionObject`
+
+`ConditionObject` 一般用于 “生产者—消费者” 的模式中，与基于`Object` 的 `wait()` 和 `notifyAll()` 实现的通信机制十分类似。
+
+对应的 `ConditionObject` 的源代码如下：
+
+```java
+public class ConditionObject implements Condition, java.io.Serializable {
+  // 条件队列的第一个节点
+  private transient Node firstWaiter;
+  // 条件队列的最后一个节点
+  private transient Node lastWaiter;
+}
+```
+
+与前文的阻塞队列相对应，条件队列与阻塞队列的对应关系图如下所示：
+
+<img src="https://www.javadoop.com/blogimages/AbstractQueuedSynchronizer-2/aqs2-2.png" style="zoom:65%"><sup>[3]</sup>
+
+具体解释：
+
+1. 条件队列和阻塞队列的节点，都是 Node 的实例对象，因为条件队列的节点是需要转移到阻塞队列中取得
+2. `ReentrantLock` 的实例对象可以通过多次调用 `newCondition()` 方法来生成新的 `Condition` 对象（最终由 `AQS` 的具体子类对象生成）。在 `AQS` 中，对于 `Condition` 的具体实现为 `ConditionObject`，这个对象只有两个属性字段：`firstWaiter` 和 `lastWaiter`
+3. 每个 `ConditionObject` 都有一个自己的条件队列，线程 1 通过调用 `Condition` 对象的 `await` 方法即可将当前的调用线程包装成为 Node 后加入到条件队列中，然后阻塞在条件队列中，不再继续执行后面的代码
+4. 调用 `Condition` 对象的 `signal()` 方法将会触发一次唤醒事件，与 `Object` 的 `notify()` 方法类似。此时唤醒的是条件队列的队头节点，唤醒后会将 `firstWaiter` 的节点移动到阻塞队列的末尾，然后在阻塞队列中等待获取锁，之后获取锁之后才能继续执行
+
 
 
 <br />
@@ -223,3 +582,5 @@ void release () {
 <sup>[1]</sup> 《Java 并发编程实战》
 
 <sup>[2]</sup> https://javadoop.com/post/AbstractQueuedSynchronizer
+
+<sup>[3]</sup> https://javadoop.com/post/AbstractQueuedSynchronizer-2

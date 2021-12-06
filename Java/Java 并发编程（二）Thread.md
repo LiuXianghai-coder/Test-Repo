@@ -1,4 +1,4 @@
-# Java 并发编程二 （Thread）
+# Java 并发编程（二） （Thread）
 
 ## 线程状态
 
