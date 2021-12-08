@@ -685,7 +685,7 @@ private int dowait(boolean timed, long nanos)
         	然后等待，直到最后一个线程调用 await
         */
         if (!timed)
-          trip.await();
+          trip.await(); // 注意，Condition 的 await 会释放锁
         else if (nanos > 0L)
           nanos = trip.awaitNanos(nanos);
       } catch (InterruptedException ie) {
