@@ -98,6 +98,55 @@ public class TestHarness {
 
 #### 源码解析
 
+`CountDownLatch` 是典型 `AQS` 的共享模式的使用，具体的源代码如下：
+
+```java
+/* 
+	具体实现的同步类，这是每个同步工具类与 AQS 关联的地方，也是实现同步的关键所在
+*/
+private static final class Sync extends AbstractQueuedSynchronizer {
+    private static final long serialVersionUID = 4982264981922014374L;
+
+    Sync(int count) {
+        /* 
+        	将 AQS 的 state 视为当前 CountDownLatch 持有的钥匙数，
+        	只有所有的钥匙都正确匹配了 Latch 才能打开这个锁，执行后面的内容
+        */
+        setState(count);
+    }
+
+    int getCount() {
+        return getState();
+    }
+    
+    /*
+    	AQS 定义的模板方法，需要子类自定义实现
+    */
+    protected int tryAcquireShared(int acquires) {
+        return (getState() == 0) ? 1 : -1;
+    }
+    
+    /*
+    	释放共享值得实现
+    */
+    protected boolean tryReleaseShared(int releases) {
+        // Decrement count; signal when transition to zero
+        for (;;) {
+            int c = getState();
+            if (c == 0)
+                return false;
+            int nextc = c - 1;
+            if (compareAndSetState(c, nextc))
+                return nextc == 0;
+        }
+    }
+}
+```
+
+
+
+
+
 <br />
 
 ### FutureTask
@@ -256,9 +305,116 @@ public class BoundHashSet<T> {
 
 #### 使用示例
 
+一个经典的使用场景就是用于合并多个已经排序好的数组，每个线程可以采用不同的排序方式对不同区域的数据进行排序，最后再将这些已经排序好的数组归并，使得整个数据都是有序的
 
+具体的实现如下：
 
+```java
+// 该实际使用的情况参考自 《Unix 环境高级编程》（第三版）中有关线程中内存屏障的实际使用
+public class BarrierExample {
+    private final CyclicBarrier barrier;
+    private final int[] array;
+    private final int[] aux;
+    private final Thread[] threads;
 
+    class MergeAction implements Runnable {
+        private final int[] idxs;
+        private final int unit;
+
+        MergeAction(int[] idxs, int unit) {
+            this.idxs = idxs;
+            this.unit = unit;
+
+            for (int i = 0; i < idxs.length; ++i)
+                idxs[i] = i * unit;
+        }
+
+        @Override
+        public void run() {
+            int idx = 0;
+            int n = idxs.length;
+            while (idx < array.length) {
+                int index = 0;
+                int tmp = 0, min = Integer.MAX_VALUE;
+                for (int i = 0; i < n; ++i) {
+                    if (idxs[i] >= array.length || idxs[i] >= (i + 1) * unit)
+                        continue;
+                    int j = idxs[i];
+                    if (array[j] < min) {
+                        index = i;
+                        min = array[j];
+                        tmp = j;
+                    }
+                }
+                idxs[index]++;
+                aux[idx++] = array[tmp];
+            }
+
+            System.arraycopy(aux, 0, array, 0, aux.length);
+        }
+    }
+
+    public BarrierExample(final int size) {
+        array = new int[size];
+        aux = new int[size];
+
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        for (int i = 0; i < size; ++i)
+            array[i] = random.nextInt(0, 2*size);
+
+        int cnt = Runtime.getRuntime().availableProcessors();
+        int unit = (int) Math.ceil(size * 1.0 / cnt);
+        threads = new Thread[cnt];
+        // 闭锁用于统计运行时间
+        startGate = new CountDownLatch(1);
+        endGate = new CountDownLatch(cnt);
+
+        for (int i = 0; i < cnt; ++i)
+            threads[i] = new Thread(
+                    new SortThread(
+                            i * unit,
+                            Math.min(array.length, (i + 1) * unit)
+                    ),
+                    "Sort-Thread-" + i
+            );
+        barrier = new CyclicBarrier(cnt, new MergeAction(new int[cnt], unit));
+    }
+
+    class SortThread implements Runnable {
+        private final int start, end;
+
+        SortThread(int start, int end) {
+            this.start = start;
+            this.end = end;
+        }
+
+        @Override
+        public void run() {
+            // 每个线程采用 Java 内置的排序算法进行排序
+            Arrays.sort(array, start, end);
+            try {
+                barrier.await();
+            } catch (InterruptedException | BrokenBarrierException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public void start() throws InterruptedException {
+        for (Thread thread : threads) thread.start();
+    }
+}
+```
+
+与在 `CPU` 处理频率为 2.4 GH，四个物理核心（八个逻辑核心）的机器上，该程序与使用单线程的性能比较如下图所示：
+
+<img src="https://s6.jpg.cm/2021/12/08/LdepbX.png">
+
+在数据量较大时有较大的性能差异，当数据量达到 2 亿级别的情况下，使用多线程的方式进行排序大约需要耗费 3500 ms，而使用单线程的方式进行排序大概需要 22000 ms，使用多线程的方式使得性能提升了 大约 6.25 倍。
+
+使用闭锁也能完成该功能，栅栏与闭锁的最大区别就是闭锁在打开之后就无法再被使用了，而栅栏在完全打开后依旧可以再次使用
+
+<br />
 
 #### 源码解析
 
