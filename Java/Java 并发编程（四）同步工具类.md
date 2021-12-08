@@ -513,6 +513,280 @@ public class BarrierExample {
 
 栅栏也是基于 `AQS` 来实现的
 
+首先查看 `CyberBarrier` 对象的相关属性：
+
+```java
+public class CyclicBarrier {
+  /*
+  	由于 CyberBarrier 是可重入的，因此把每次从开始使用到穿过栅栏当做 “一代” 或者 “一个周期”
+  */
+  private static class Generation {
+    boolean broken = false;
+  }
+
+  // 使用可重入锁来实现拦截的功能
+  private final ReentrantLock lock = new ReentrantLock();
+  
+  /* 
+  	通过 CyclicBarrier 的栅栏的条件，
+  	在 CyclicBarrier 中的条件为所有的线程都已经到达了该栅栏位置
+  */
+  private final Condition trip = lock.newCondition();
+
+  /*
+  	需要到达栅栏的线程数
+  */
+  private final int parties;
+
+  /*
+  	在越过栅栏之前要执行的任务
+  */
+  private final Runnable barrierCommand;
+  
+  // 当前所处的 “代”
+  private Generation generation = new Generation();
+
+  /*
+  	还未到达栅栏的线程的数量，初始数量为 parties，
+  	每当一个线程到达栅栏，该数量就 -1
+  */
+  private int count;
+}
+```
+
+新的 “一代” 的开启逻辑：
+
+```java
+private void nextGeneration() {
+  // signal completion of last generation
+  /*
+  	回忆一下 AQS 的 ConditionObject，调用该方法将会将 ConditionObject 
+  	的条件队列中的所有的线程节点移动到阻塞队列
+  */
+  trip.signalAll();
+  
+  // set up next generation
+  /*
+  	重新生成新的一代
+  */
+  count = parties;
+  
+  generation = new Generation();
+}
+```
+
+“打破栅栏” 的逻辑：
+
+```java
+private void breakBarrier() {
+  // 设置 broken 状态为 true
+  generation.broken = true;
+  // 重置 count 初始值为 parties
+  count = parties;
+  /*
+  	唤醒所有在 trip 的条件队列中的线程，将它们放入到阻塞队列
+  */
+  trip.signalAll();
+}
+```
+
+<br />
+
+`await` 方法：
+
+```java
+// 不带超时机制的 await 方法
+public int await() throws InterruptedException, BrokenBarrierException {
+  try {
+    return dowait(false, 0L);
+  } catch (TimeoutException toe) {
+    throw new Error(toe); // cannot happen
+  }
+}
+
+// 带超时机制的 await 方法，如果超时则抛出 TimeoutException
+public int await(long timeout, TimeUnit unit)
+  throws 	InterruptedException,
+					BrokenBarrierException,
+					TimeoutException {
+  return dowait(true, unit.toNanos(timeout));
+}
+```
+
+这两个方法都调用了 `dowait` 方法，具体查看 `dowait` 方法的逻辑：
+
+```java
+// 栅栏的核心逻辑部分
+
+private int dowait(boolean timed, long nanos)
+  throws 	InterruptedException, 
+					BrokenBarrierException,
+					TimeoutException {
+  final ReentrantLock lock = this.lock;
+  // 首先尝试获取锁
+  lock.lock();
+  try {
+    final Generation g = generation;
+    
+    // 检查栅栏是否被打破，如果被打破，则抛出 BrokenBarrierException
+    if (g.broken)
+      throw new BrokenBarrierException();
+
+    // 检查中断状态，如果这个线程已经被中断了，则抛出 InterruptedException
+    if (Thread.interrupted()) {
+      breakBarrier();
+      throw new InterruptedException();
+    }
+    
+    /*
+    	index 是这个 dowait 的返回值 
+    */
+    int index = --count;
+    
+    /*
+    	如果 index 为 0，说明所有的线程都已经到达了栅栏上，准备通过栅栏
+    */
+    if (index == 0) {  // tripped
+      boolean ranAction = false;
+      try {
+        // 执行在通过栅栏之前要执行的任务（如果定义了）
+        final Runnable command = barrierCommand;
+        if (command != null)
+          command.run();
+        /*
+        	将 ranAction 设置为 true 表示在执行 command 任务时没有发生异常退出的情况
+        */
+        ranAction = true;
+        /*
+        	唤醒所有在 ConditionObject 对象中的线程节点，将它们放入到阻塞队列中
+        	然后再生成新的 “一代”
+        */
+        nextGeneration();
+        return 0;
+      } finally {
+        if (!ranAction)
+          /*
+          	执行到这里说明在执行 command 任务时发生了异常，在这种情况下需要打破栅栏，
+          	唤醒所有的等待线程，设置 broken 为 true，重置 count 为 parties
+          */
+          breakBarrier();
+      }
+    }
+
+    // loop until tripped, broken, interrupted, or timed out
+    /*
+    	如果最后一个线程调用了 await，那么就会直接返回了
+    	如果不是最后一个到达栅栏的线程，那么就会执行下面的代码
+    */
+    for (;;) {
+      try {
+        /* 
+        	如果带有超时机制，调用带有超时的 Condition 的 await 方法，
+        	然后等待，直到最后一个线程调用 await
+        */
+        if (!timed)
+          trip.await();
+        else if (nanos > 0L)
+          nanos = trip.awaitNanos(nanos);
+      } catch (InterruptedException ie) {
+        /* 
+        	如果执行到这里，说明正在等待的线程在调用 await (Condition 的 await 方法) 
+        	的过程中被中断了
+        */
+        if (g == generation && ! g.broken) {
+          // 打破栅栏，然后抛出异常
+          breakBarrier();
+          throw ie;
+        } else {
+          /*
+          	到这里，说明新的 “一代” 已经产生了，即最后一个线程 await 执行成功，
+          	在这种情况下就没有必要抛出异常了，记录这个中断信息即可
+          	
+          	如果栅栏已经被打破了，那么也不应该抛出 InterruptedException 异常，
+          	而是抛出 BrokenBarrierException  异常
+          */
+          Thread.currentThread().interrupt();
+        }
+      }
+      
+      // 检查栅栏是否被打破
+      if (g.broken)
+        throw new BrokenBarrierException();
+
+      /*
+      	如果最后一个线程执行完指定的任务时，会调用 nextGeneration 方法来创建一个新的 “代”
+      	然后再释放掉锁，其它线程从 Condition 对象的 await 方法中获取到锁并返回，就会满足下面的条件
+      */
+      if (g != generation)
+        return index;
+      
+      // 如果存在超时限制，并且已经超时，则抛出 TimeoutException
+      if (timed && nanos <= 0L) {
+        breakBarrier();
+        throw new TimeoutException();
+      }
+    }
+  } finally {
+    // 记得一定要在 finally 中释放锁
+    lock.unlock();
+  }
+}
+```
+
+查看有多少个线程已经到达了栅栏上：
+
+```java
+public int getNumberWaiting() {
+  final ReentrantLock lock = this.lock;
+  lock.lock();
+  try {
+    return parties - count;
+  } finally {
+    lock.unlock();
+  }
+}
+```
+
+检查栅栏是否被打破的方法：
+
+```java
+public boolean isBroken() {
+  final ReentrantLock lock = this.lock;
+  lock.lock();
+  try {
+    return generation.broken;
+  } finally {
+    lock.unlock();
+  }
+}
+```
+
+总结一下会打破栅栏的几种情况：
+
+-   在执行 `await` 的线程被中断了
+-   执行 `command` 任务时出现了异常
+-   带有超时限制的 `await` 方法在被唤醒时发现超时了
+
+<br />
+
+最后，重置栅栏的方法：
+
+```java
+public void reset() {
+  final ReentrantLock lock = this.lock;
+  lock.lock();
+  try {
+    /*
+    	简单来讲就是 “打破旧的，创建新的”
+    */
+    breakBarrier();   // break the current generation
+    nextGeneration(); // start a new generation
+  } finally {
+    lock.unlock();
+  }
+}
+```
+
 
 
 <br />
