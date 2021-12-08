@@ -30,6 +30,12 @@
 
 <br />
 
+闭锁的线程执行情况如下图所示：
+
+<img src="https://s6.jpg.cm/2021/12/08/LdpfTp.png" style="zoom:60%" /><sup>[2]</sup>
+
+<br />
+
 #### 使用示例
 
 闭锁的一个常用的使用情况是记录多线程程序的运行时间
@@ -98,9 +104,13 @@ public class TestHarness {
 
 #### 源码解析
 
-`CountDownLatch` 是典型 `AQS` 的共享模式的使用，具体的源代码如下：
+`CountDownLatch` 是典型 `AQS` 的共享模式的使用
+
+首先查看 `CountDownLatch` 中有关 `AQS` 具体子类的定义：
 
 ```java
+// CountDownLatch.Sync
+
 /* 
 	具体实现的同步类，这是每个同步工具类与 AQS 关联的地方，也是实现同步的关键所在
 */
@@ -114,36 +124,60 @@ private static final class Sync extends AbstractQueuedSynchronizer {
         */
         setState(count);
     }
+    // 省略部分继承自 AQS 的自定义实现方法，具体可以参见有关 AQS 共享模式的部分
+}
+```
 
-    int getCount() {
-        return getState();
+这部分内容主要是有关于 `AQS` 共享模式的使用，只是 `CountDownLatch` 将 `state` 看做是打开这扇门的钥匙，只有所有的钥匙都匹配了才会打开这个锁，即将 `state` 置为 0 唤醒阻塞队列中的所有节点以继续执行
+
+`CountDownLatch` 关键的两个方法为 `await()` 和 `countDown()`，具体的实现如下：
+
+```java
+public class CountDownLatch {
+    // 省略一些其它的不太关键的代码	
+    public void await() throws InterruptedException {
+        sync.acquireSharedInterruptibly(1);
     }
-    
-    /*
-    	AQS 定义的模板方法，需要子类自定义实现
-    */
-    protected int tryAcquireShared(int acquires) {
-        return (getState() == 0) ? 1 : -1;
+
+    public boolean await(long timeout, TimeUnit unit)
+        throws InterruptedException {
+        // 带有超时时间的 timeOut
+        return sync.tryAcquireSharedNanos(1, unit.toNanos(timeout));
     }
-    
-    /*
-    	释放共享值得实现
-    */
-    protected boolean tryReleaseShared(int releases) {
-        // Decrement count; signal when transition to zero
-        for (;;) {
-            int c = getState();
-            if (c == 0)
-                return false;
-            int nextc = c - 1;
-            if (compareAndSetState(c, nextc))
-                return nextc == 0;
-        }
+
+    public void countDown() {
+        // 相当于有一把钥匙已经匹配了
+        sync.releaseShared(1);
     }
 }
 ```
 
+`CountDownLatch` 的`await()` 方法主要依赖对于 `tryAcquireShared` 的具体实现，`CountDownLatch` 对此的具体实现如下：
 
+```java
+protected int tryAcquireShared(int acquires) {
+    // 如果所有的钥匙都已经被匹配了，那么就可以打开这个锁了
+    return (getState() == 0) ? 1 : -1; 
+}
+```
+
+`countDown()` 方法主要依赖于 `tryReleaseShared` 方法的实现，在 `CountDownLatch` 中对此的实现如下：
+
+```java
+protected boolean tryReleaseShared(int releases) {
+    for (;;) { // 使用永正循环防止 CAS 失败
+        int c = getState();
+        if (c == 0)
+            return false;
+        // 已经有一个钥匙配对了
+        int nextc = c - 1;
+        if (compareAndSetState(c, nextc))
+            return nextc == 0;
+    }
+}
+```
+
+上文的介绍只是大概介绍一下有关 `AQS` 具体子类实现的模板方法， 真正核心的部分依旧位于 `AQS` 中，如果不嫌弃的话，可以看看我的这篇：https://www.cnblogs.com/FatalFlower/p/15656009.html
 
 
 
@@ -210,7 +244,13 @@ public class PreLoader {
 
 #### 源码解析
 
+我认为这个工具类已经过时了，如果有必须使用 `FutureTask` 来实现的异步任务，那么我会更加倾向于使用 `Reactor` 来实现。出于这个原因，对于这个工具类我不打算做进一步的源码分析
 
+源码分析略过。。。。
+
+
+
+<br />
 
 ### 信号量（Semaphore）
 
@@ -269,13 +309,60 @@ public class BoundHashSet<T> {
 }
 ```
 
-
-
 <br />
 
 #### 源码解析
 
+同样的，`Semaphore` 也是基于 `AQS` 的。
 
+`acquire`  方法：
+
+```java
+/*
+	都是基于 AQS 方法的调用，不做过多的介绍
+*/
+
+public void acquire() throws InterruptedException {
+    sync.acquireSharedInterruptibly(1);
+}
+
+public void acquireUninterruptibly() {
+    sync.acquireShared(1);
+}
+
+public void acquire(int permits) throws InterruptedException {
+    if (permits < 0) throw new IllegalArgumentException();
+    sync.acquireSharedInterruptibly(permits);
+}
+
+public void acquireUninterruptibly(int permits) {
+    if (permits < 0) throw new IllegalArgumentException();
+    sync.acquireShared(permits);
+}
+```
+
+`release` 方法：
+
+```java
+/*
+	都是基于 AQS 父类方法，不做过多的介绍
+*/
+
+public void release() {
+    sync.releaseShared(1);
+}
+
+public void release(int permits) {
+    if (permits < 0) throw new IllegalArgumentException();
+    sync.releaseShared(permits);
+}
+```
+
+`Semaphore` 也存在 “公平” 和 “非公平” 的两种具体实现，主要的区别在于 “公平” 的实现会首先检查在阻塞队列中是否已经存在争夺锁的线程节点，除此之外并没有什么大的不同
+
+
+
+<br />
 
 ### 栅栏（Barrier）
 
@@ -300,6 +387,12 @@ public class BoundHashSet<T> {
 >   如果成功地通过栅栏，那么 `await` 将为每个线程返回同一个唯一的到达索引号，可以利用这些索引来选举产生一个领导线程，并在下一次的迭代中由该领导线程执行一些特殊的工作。
 
 <sup>[1]</sup> 
+
+<br />
+
+栅栏的线程的一般执行情况如下图所示：
+
+<img src="https://s6.jpg.cm/2021/12/08/LdpaaL.png" style="zoom:80%"><sup>[2]</sup>
 
 <br />
 
@@ -418,7 +511,11 @@ public class BarrierExample {
 
 #### 源码解析
 
+栅栏也是基于 `AQS` 来实现的
 
+
+
+<br />
 
 ## 读写锁
 
@@ -428,3 +525,4 @@ public class BarrierExample {
 
 <sup>[1]</sup> 《Java 并发编程实战》
 
+<sup>[2]</sup> https://javadoop.com/post/AbstractQueuedSynchronizer-3

@@ -1003,17 +1003,25 @@ private void doAcquireSharedInterruptibly(int arg)
     try {
         for (;;) {
             final Node p = node.predecessor();
+            /* 
+            	如果当前节点的前置节点为 head，那么就可以尝试获取一次锁
+            	这是因为当前的阻塞队列处于共享模式，因此如果当前节点的前置节点已经获取了锁，
+            	那么就意味着将会唤醒所有的线程，使得它们继续工作，因此此时是有机会获取到锁的
+            */
             if (p == head) {
                 // 同上，由子类实现的模板方法
                 int r = tryAcquireShared(arg);
                 if (r >= 0) {
+                    // 成功获取锁之后，唤醒后继节点
                     setHeadAndPropagate(node, r);
                     p.next = null; // help GC
                     return;
                 }
             }
+            // 如果获取锁失败，那么就需要挂起这个线程，避免由于自旋带来的资源浪费
             if (shouldParkAfterFailedAcquire(p, node) &&
                 parkAndCheckInterrupt())
+                // 线程被中断的话，在此对于线程中断的处理时抛出 InterruptedException
                 throw new InterruptedException();
         }
     } catch (Throwable t) {
@@ -1050,6 +1058,9 @@ private void doReleaseShared() {
             	设置为 Node.SIGNAL 
             */
             if (ws == Node.SIGNAL) {
+                 /*
+                	这里使用的 CAS 可能被下面的 CAS 修改过，因此可能会修改失败
+                */
                 if (!h.compareAndSetWaitStatus(Node.SIGNAL, 0))
                     continue;            // loop to recheck cases
                 /*
