@@ -787,15 +787,340 @@ public void reset() {
 }
 ```
 
-
-
 <br />
 
 ## 读写锁
 
+`JUC` 中关于读写锁的接口定义如下：
+
+```java
+// java.util.concurrent.locks.ReadWriteLock
+public interface ReadWriteLock {
+    // 返回一个读锁
+    Lock readLock();
+    
+    // 返回一个写锁
+    Lock writeLock();
+}
+```
+
+在 `JUC` 中，常用的具体实现为 `ReentrantReadWriteLock`，因此，在这里以 `ReentrantReadWriteLock` 为例来介绍读写锁的相关内容。
+
+<br />
+
+### 基本使用
+
+读写锁的一个常用的使用场景就是对于数据的读取操作，在大部分的业务场景下，发生读的情况要比发生写的概率要高很多。在这种情况，可以针对热点数据进行缓存，从而提高系统的响应性能。
+
+使用示例如下：
+
+```java
+// 该代码来源于 JDK 的官方文档，稍作了一点修改
+class CachedData {
+    Object data;
+    volatile boolean cacheValid;
+    final DataAccess access;
+    final Order order;
+    final ReentrantReadWriteLock rwl = new ReentrantReadWriteLock();
+
+    CachedData(DataAccess access, Order order) {
+        this.access = access;
+        this.order = order;
+    }
+
+    void processCachedData() {
+        rwl.readLock().lock();
+        if (!cacheValid) { // 当前缓存已经失效了，即已经发生了写事件
+            // 在获取写锁之前必须释放读锁，否则会造成死锁
+            rwl.readLock().unlock();
+            rwl.writeLock().lock();
+            try {
+                /*
+                	重新判断缓存是否是失效的，
+                	因为在这个过程中可能已经有其它的线程对这个缓存的数据进行修改了
+                */
+                if (!cacheValid) {
+                    data = access.queryData();
+                    cacheValid = true;
+                }
+                /*
+                	获取读锁，在持有写锁的情况下，可以获得读锁，这也被称为 “锁降级”
+                */
+                rwl.readLock().lock();
+            } finally {
+                // 释放写锁，此时依旧持有读锁
+                rwl.writeLock().unlock();
+            }
+        }
+
+        try {
+            order.useData(data);
+        } finally {
+            // 注意最后一定要释放锁
+            rwl.readLock().unlock();
+        }
+    }
+
+    interface DataAccess {
+        Object queryData();
+    }
+
+    interface Order {
+        void useData(Object data);
+    }
+}
+```
+
+<br />
+
+### 源码解析
+
+<br />
+
+#### 构造函数
+
+首先，查看 `ReentrantReadWriteLock` 实例对象的属性
+
+```java
+public class ReentrantReadWriteLock
+    implements ReadWriteLock, java.io.Serializable {
+    // ReentrantReadWriteLock 的静态内部类，为读锁
+    private final ReentrantReadWriteLock.ReadLock readerLock;
+    // ReentrantReadWriteLock 的静态内部类，为写锁
+    private final ReentrantReadWriteLock.WriteLock writerLock;
+
+    // 同步工具类，为 AQS 的具体子类
+    final Sync sync;
+    
+    public ReentrantReadWriteLock() {
+        this(false);
+    }
+    
+    // 构造函数，初始化 ReentrantReadWriteLock，默认情况选择使用非公平的同步工具 
+    public ReentrantReadWriteLock(boolean fair) {
+        sync = fair ? new FairSync() : new NonfairSync();
+        readerLock = new ReadLock(this);
+        writerLock = new WriteLock(this);
+    }
+}
+```
+
+再查看 `ReadLock` 和 `WriteLock` 的相关定义，首先查看 `ReadLock` 相关的源代码：
+
+```java
+public static class ReadLock implements Lock, java.io.Serializable {
+    private final Sync sync;
+
+    protected ReadLock(ReentrantReadWriteLock lock) {
+        sync = lock.sync; // 注意这里的 sync
+    }
+    // 省略其它一些不是特别重要的代码
+}
+```
+
+再查看 `WriteLock` 相关的源代码：
+
+```java
+public static class WriteLock implements Lock, java.io.Serializable {
+    private final Sync sync;
+
+    protected WriteLock(ReentrantReadWriteLock lock) {
+        sync = lock.sync; // 注意这里的 sync
+    }
+    // 省略其它一些不是特别重要的代码
+}
+```
+
+可以看到，`ReadLock` 和 `WriteLock` 都使用了同一个 `Sync` 实例对象来维持自身的同步需求，这点很关键
+
+<br />
+
+#### 原理
+
+`ReadLock` 中关于获取锁和释放锁的源代码：
+
+```java
+// 获取锁
+public void lock() {
+    sync.acquireShared(1);
+}
+
+public void lockInterruptibly() throws InterruptedException {
+    sync.acquireSharedInterruptibly(1);
+}
+
+// 释放锁
+public void unlock() {
+    sync.releaseShared(1);
+}
+```
+
+`WriteLock` 中关于获取锁和释放锁的源代码：
+
+```java
+// 获取锁
+public void lock() {
+    sync.acquire(1);
+}
+
+public void lockInterruptibly() throws InterruptedException {
+    sync.acquireInterruptibly(1);
+}
+
+// 释放锁
+public void unlock() {
+    sync.release(1);
+}
+```
+
+通过对比 `ReadLock` 和 `WriteLock` 中获取锁和释放锁的源代码，很明显，`ReadLock` 是以 “共享模式” 的方式获取和释放锁，而 `WriteLock` 则是通过以独占的方式来获取和释放锁。这两种获取和释放锁的实现都在 `AQS` 中定义，在此不做过多的详细介绍
+
+再结合上文关于 `ReadLock` 和 `WriteLock` 的构造函数，可以发现它们是使用了同一个 `AQS` 子类实例对象，也就是说，在 `ReentrantReadWriteLock` 中的 `AQS` 的具体子类既使用了“共享模式”，也使用了“独占模式”
+
+更一般地来讲，回忆一下 `AQS` 关于 “共享模式” 和 “独占模式”  对于 `state` 变量的使用，“共享模式” 将 `state` 共享，每个线程都能访问 `state`；“独占模式” 下，`state` 被视作是获取到锁的状态，0 表示还没有线程获取该锁，大于 0 则表示线程获取锁的重入次数
+
+为了能够实现 `ReentrantReadWriteLock` 中的两个模式的共用的功能，`ReentrantReadWriteLock` 中 `Sync` 类对 `state` 进行了如下的处理：
+
+> ReentrantReadWriteLock 使用了一个 16 位的状态来表示写入锁的计数，并且使用了另外一个 16 位的状态来表示读锁的计数 
+
+就是说，`state` 变量已经被拆分成了两部分，由于 `state` 是一个 32 位的整数，现在 `state` 的前 16 位用于单独处理“共享模式”，而后 16 位则用于处理 “独占模式”
+
+<br />
+
+#### Sync
+
+核心部分就是分析 `Sync` 的源代码，在这里定义了对 `state` 变量的修改以及获取锁和释放锁的逻辑
+
+首先查看 `Sync` 相关字段属性：
+
+```java
+abstract static class Sync extends AbstractQueuedSynchronizer {
+    // 这几个字段的作用就是将 state 划分为两部分，前 16 位为共享模式，后 16 位为独占模式
+    static final int SHARED_SHIFT   = 16;
+    static final int SHARED_UNIT    = (1 << SHARED_SHIFT);
+    // -1 的目的值为了得到最大值
+    static final int MAX_COUNT      = (1 << SHARED_SHIFT) - 1; 
+    static final int EXCLUSIVE_MASK = (1 << SHARED_SHIFT) - 1;
+    
+    // 取 c 的前 16 位, 只需要右移即可
+    static int sharedCount(int c)    { return c >>> SHARED_SHIFT; }
+    // 取 c 的后 16 位，只要与对应的掩码按位与即可
+    static int exclusiveCount(int c) { return c & EXCLUSIVE_MASK; }
+
+    // 该类的作用是记录每个线程持有的读锁的数量
+    static final class HoldCounter {
+        // 线程持有的读锁的数量
+        int count = 0;
+        // 线程的 ID
+        final long tid = getThreadId(Thread.currentThread());
+    }
+    
+    // ThreadLocal 的子类
+    static final class ThreadLocalHoldCounter
+        extends ThreadLocal<HoldCounter> {
+        public HoldCounter initialValue() {
+            return new HoldCounter();
+        }
+    }
+    
+    /*
+    	用于记录线程持有的读锁信息
+    */
+    private transient ThreadLocalHoldCounter readHolds;
+
+    /*
+    	用于缓存，用于记录 “最后一个获取读锁” 的线程的读锁的重入次数
+    */
+    private transient HoldCounter cachedHoldCounter;
+
+    /*
+    	第一个获取读锁的线程（并且未释放读锁）
+    */
+    private transient Thread firstReader = null;
+    // 第一个获取读锁的线程持有的读锁的数量（重入次数）
+    private transient int firstReaderHoldCount;
+
+    Sync() {
+        // 初始化 readHolds
+        readHolds = new ThreadLocalHoldCounter();
+        // 确保 readHolds 的可见性
+        setState(getState()); // ensures visibility of readHolds
+    }
+}
+```
+
+#### 读锁
+
+- 读锁的获取
+
+    再回到 `ReadLock` 部分，获取锁的源代码如下：
+
+    ```java
+    public void lock() {
+        sync.acquireShared(1);
+    }
+    
+    // 与之对应的 AQS 的代码
+    public final void acquireShared(int arg) {
+        if (tryAcquireShared(arg) < 0)
+            doAcquireShared(arg);
+    }
+    ```
+
+    重点在于 `tryAcquireShared(arg)` 方法，该方法在 `Sync` 中定义：
+
+    ```java
+    protected final int tryAcquireShared(int unused) {
+        Thread current = Thread.currentThread();
+        int c = getState();
+        
+        /*
+        	exclusiveCount(c) != 0 说明当前有线程持有写锁，在这种情况下就不能直接获取读锁
+        	但是如果持有写锁的线程时当前线程，那么就可以继续获取读锁
+        */
+        if (exclusiveCount(c) != 0 &&
+            getExclusiveOwnerThread() != current)
+            return -1;
+        
+        int r = sharedCount(c); // 读锁的获取次数
+        
+        if (!readerShouldBlock() && // 读锁是否需要阻塞
+            r < MAX_COUNT && // 判断获取锁的次数是否溢出（2^16 - 1）
+            compareAndSetState(c, c + SHARED_UNIT)) { // 将读锁的获取次数 +1
+            
+            // 此时已经获取到了读锁
+            
+            // r == 0 说明线程是第一个获取读锁的，或者前面获取读锁的线程都已经释放了读锁
+            if (r == 0) {
+                firstReader = current;
+                firstReaderHoldCount = 1;
+            } else if (firstReader == current) { // 是否重入
+                firstReaderHoldCount++;
+            } else {
+                // 更新缓存，即最后一个获取读锁的线程
+                HoldCounter rh = cachedHoldCounter;
+                if (rh == null || rh.tid != getThreadId(current))
+                    cachedHoldCounter = rh = readHolds.get();
+                else if (rh.count == 0)
+                    // 
+                    readHolds.set(rh);
+                rh.count++;
+            }
+            return 1;
+        }
+        return fullTryAcquireShared(current);
+    }
+    ```
+
+    
+
+- 读锁的释放
+
+#### 写锁
 
 
 
+<br />
 
 <sup>[1]</sup> 《Java 并发编程实战》
 
