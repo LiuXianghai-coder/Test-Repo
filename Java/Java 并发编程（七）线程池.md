@@ -72,7 +72,7 @@ public interface Executor {
   具体的定义如下：
 
   ```java
-  public interface Callable<V> {
+  public interface Callable<V> { // 如果不需要返回值，可以使得返回值为 Void 对象
       V call() throws Exception;
   }
   ```
@@ -125,43 +125,139 @@ public interface ExecutorService extends Executor {
 
 `ExecutorService` 的生命周期有三种状态：运行、关闭、已终止。
 
+<br />
+
+### `ScheduledExecutorService`
+
+由于 `Timer` 用于执行延迟任务中存在的较大的缺陷，使用 `ScheduledExecutorService` 来实现延迟执行可能是一个不错的选择。
+
+`ScheduleExecutorService` 中定义的接口如下：
+
+```java
+public interface ScheduledExecutorService extends ExecutorService {
+    public ScheduledFuture<?> schedule(Runnable command,
+                                       long delay, TimeUnit unit);
+
+    public <V> ScheduledFuture<V> schedule(Callable<V> callable,
+                                           long delay, TimeUnit unit);
+
+    public ScheduledFuture<?> scheduleAtFixedRate(Runnable command,
+                                                  long initialDelay,
+                                                  long period,
+                                                  TimeUnit unit);
+    
+    public ScheduledFuture<?> scheduleWithFixedDelay(Runnable command,
+                                                     long initialDelay,
+                                                     long delay,
+                                                     TimeUnit unit);
+
+}
+```
+
+使用示例如下：
+
+```java
+ScheduledExecutorService service = Executors.newScheduledThreadPool(1); // 创建一个执行延迟任务的线程的线程池
+// 定义要执行的延迟任务
+ScheduledFuture<?> scheduledFuture = service.schedule(
+    () -> System.out.println("beep!"), // 具体任务
+    2, // 延迟的间隔
+    TimeUnit.SECONDS // 间隔时间的单元
+);
+// 在 10s 之后取消该线程池中的任务
+service.schedule(
+    () -> scheduledFuture.cancel(true),
+    10,
+    TimeUnit.SECONDS
+);
+```
+
+
+
+<br />
+
+### Executor 工厂
+
+`Executor` 工厂对象用于创建 `Executor`，主要的具体类为 `Executors`
+
+`Executors` 中的静态工厂方法如下：
+
+```java
+public class Executors {
+    /*
+    	用于创建固定大小的线程池
+    */
+    public static ExecutorService newFixedThreadPool(int nThreads){}
+    public static ExecutorService newFixedThreadPool(int nThreads, ThreadFactory threadFactory){}
+    
+    /*
+    	用于创建 ForkJoin 任务。。。。
+    */
+    public static ExecutorService newWorkStealingPool(int parallelism){}
+    public static ExecutorService newWorkStealingPool(){}
+    
+    // 创建线程池基本大小只有 1，最大大小为 Integer.MAX_VALUE 的线程池
+    public static ExecutorService newSingleThreadExecutor(){}
+    public static ExecutorService newSingleThreadExecutor(ThreadFactory threadFactory){}
+    
+    /*
+    	创建带有缓存的线程池，实际上，就是使用 SynchronousQueue 代替原有的阻塞队列，这是一种更加有效地避免队列溢出的解决手段
+    	具体地，通过这种方式创建的线程池，基本大小为 0,最大大小为 Integer.MAX_VALUE，由于 SynchronousQueue 的存在能够很好地处理任务排队的问题
+    */
+    public static ExecutorService newCachedThreadPool(){}
+    public static ExecutorService newCachedThreadPool(ThreadFactory threadFactory){}
+    
+    /*
+    	创建 ScheduledExecutorService
+    */
+    public static ScheduledExecutorService newSingleThreadScheduledExecutor(){}
+    public static ScheduledExecutorService newSingleThreadScheduledExecutor(ThreadFactory threadFactory) {}
+    
+    /*
+    	创建 ScheduledExecutorService 的线程池
+    */
+    public static ScheduledExecutorService newScheduledThreadPool(int corePoolSize){}
+    public static ScheduledExecutorService newScheduledThreadPool(int corePoolSize, ThreadFactory threadFactory) {}
+    
+    /*
+    	创建不带配置的 ExecutorService
+    */
+    public static ExecutorService unconfigurableExecutorService(ExecutorService executor){}
+    public static ScheduledExecutorService unconfigurableScheduledExecutorService(ScheduledExecutorService executor) {}
+   
+    /*
+    	创建 ThreadFactory，该对象用于定义创建线程的逻辑
+    */
+    public static ThreadFactory defaultThreadFactory(){}
+    public static ThreadFactory privilegedThreadFactory(){}
+    
+    /*
+    	Runnable 到 Callable 的转换。。。
+    */
+    public static <T> Callable<T> callable(Runnable task, T result) {}
+    public static Callable<Object> callable(Runnable task) {}
+    
+    /*
+    	从原有的 action 中创建 Callable 任务
+    */
+    public static Callable<Object> callable(final PrivilegedAction<?> action) {}
+    public static Callable<Object> callable(final PrivilegedExceptionAction<?> action) {}
+    
+    public static <T> Callable<T> privilegedCallable(Callable<T> callable) {}
+    
+    public static <T> Callable<T> privilegedCallableUsingCurrentClassLoader(Callable<T> callable) {}
+}
+```
+
 
 
 <br />
 
 ## 线程池
 
+一般常用的线程池为 `ThreadPoolExecutor`
+
 <br />
-
-### 线程池大小
-
-需要具体问题具体分析，一般的推荐的大小如下：
-
-- 对于 CPU 密集型的程序，一般线程池的大小比较小，为 $N_{cpu} + 1$
-
-- 对于 IO 密集型的程序，一般设置为 $2\times N_{cpu}$  是合理的
-
-- 混合型：	需要进行差分
-
-  得到可用的 CPU 核心数：`N = Runtime.getRuntime().availableProcessors()`
-
-  定义以下一些变量：
-
-$$
-\begin{align*}
-&N_{cpu} = number \; of \; CPU \;(CPU 的总核心数)\\
-&U_{cpu} = tagret \; CPU \; utilization\;(0\leq U_{cpu}\leq\quad CPU的使用率)\\
-&\frac{W}{C} = ratio\; of \; wait \; time \; to \; compute \; time\; (等待计算的时间所占的比重)
-\end{align*}一般来讲，设置线程池最优的大小为：
-$$
-
-$$
-N_{threads} = N_{cpu} \ast U_{cpu} \ast(1 + \frac{W}{C})
-$$
-
-以上只是推荐的大小，具体受到内存、文件句柄、套接字句柄等一系列资源限制的影响。但是线程池大小的上限还是比较容易计算的，只需要计算每个任务对该资源的需求量，然后用该资源的可用总量除以每个任务的需求量，得到的结果就是线程池大小的上限
-
-
 
 ### ThreadPoolExecutor
 
@@ -299,6 +395,270 @@ public class TimingThreadPool extends ThreadPoolExecutor {
     }
 }
 ```
+
+<br />
+
+### 任务的执行
+
+在 `ThreadPoolExecutor` 中执行一个任务主要有两种方式：`execute` 和 `submit`，其中，`execute` 用于执行不带返回值的任务，而 `submit`提交的任务一般都会显式地表达出希望获取执行结果的意图
+
+
+
+#### `execute`
+
+对于于 `ThreadPoolExecutor` 中的 `execute(Runnable command)`，具体的源代码如下：
+
+```java
+public void execute(Runnable command) {
+    if (command == null)
+        throw new NullPointerException();
+
+    int c = ctl.get();
+    // 如果线程池中线程的数量小于基本大小，那么直接创建一个新的线程去执行这个任务
+    if (workerCountOf(c) < corePoolSize) {
+        if (addWorker(command, true)) // 线程池中创建的线程会被封装成工作线程 Worker
+            return;
+        c = ctl.get();
+    }
+    // 如果线程池中线程的数量大于基本大小，并且工作队列不满的情况下，尝试加入到工作队列中
+    if (isRunning(c) && workQueue.offer(command)) {
+        int recheck = ctl.get();
+        if (! isRunning(recheck) && remove(command))
+            reject(command);
+        else if (workerCountOf(recheck) == 0)
+            addWorker(null, false);
+    }
+    /* 
+    	此时工作队列已经满了，那么将在线程池中线程的数量小于最大大小的情况下，
+    	将会尝试创建一个新的线程来执行对应的任务
+    */
+    else if (!addWorker(command, false))
+        reject(command);
+}
+```
+
+关键在与 `addWorder` 方法，它的主要功能是创建一个线程去执行提交的任务，具体的代码如下：
+
+```java
+private boolean addWorker(Runnable firstTask, boolean core) {
+    // 省略一部分不太重要的代码。。。。
+    boolean workerStarted = false;
+    boolean workerAdded = false;
+    Worker w = null;
+    try {
+        w = new Worker(firstTask); // 将当前的任务封装为 Worker
+        final Thread t = w.thread;
+        if (t != null) {
+            final ReentrantLock mainLock = this.mainLock;
+            mainLock.lock(); // 获取全局锁
+            try {
+                int rs = runStateOf(ctl.get());
+
+                if (rs < SHUTDOWN ||
+                    (rs == SHUTDOWN && firstTask == null)) {
+                    if (t.isAlive()) // precheck that t is startable
+                        throw new IllegalThreadStateException();
+                    workers.add(w); // 添加 worker 到工作线程集合中
+                    int s = workers.size();
+                    if (s > largestPoolSize)
+                        largestPoolSize = s;
+                    workerAdded = true;
+                }
+            } finally {
+                mainLock.unlock(); // 注意最终需要释放锁
+            }
+            if (workerAdded) { // 添加成功则启动这个任务
+                t.start();
+                workerStarted = true;
+            }
+        }
+    } finally {
+        if (! workerStarted)
+            addWorkerFailed(w);
+    }
+    return workerStarted;
+}
+
+```
+
+关键的地方在于 `Worker` 对于线程的封装，具体实例化 `Worker` 的代码如下：
+
+```java
+private final class Worker
+    extends AbstractQueuedSynchronizer // 继承自 AQS，用于实现自身的同步需求
+    implements Runnable 
+{
+    final Thread thread;
+    Runnable firstTask;
+
+    Worker(Runnable firstTask) {
+        setState(-1); // inhibit interrupts until runWorker
+        this.firstTask = firstTask; // 当前的执行任务
+        this.thread = getThreadFactory().newThread(this); // 使用 ThreadFactory 创建一个新的对象
+    }
+}
+```
+
+`Worker` 中比较关键的一点在于对于任务的执行，对应 `run` 方法：
+
+```java
+public void run() {
+    runWorker(this);
+}
+
+// runWorkers。。。。。。
+final void runWorker(Worker w) {
+    Thread wt = Thread.currentThread();
+    Runnable task = w.firstTask;
+    w.firstTask = null;
+    w.unlock(); // allow interrupts
+    boolean completedAbruptly = true;
+    try {
+        while (task != null || (task = getTask()) != null) {
+            /*
+            	获取锁保证并发的安全性，这里的获取锁和释放锁都是基于 Worker 对象自身对于同步机制的实现
+            */
+            w.lock();
+            if ((runStateAtLeast(ctl.get(), STOP) ||
+                 (Thread.interrupted() &&
+                  runStateAtLeast(ctl.get(), STOP))) &&
+                !wt.isInterrupted())
+                wt.interrupt();
+            try {
+                beforeExecute(wt, task); // 钩子方法，用于子类定义的实现，使得在执行任务之前做一些额外的处理
+                Throwable thrown = null;
+                try {
+                    task.run(); // 实际执行任务的地方
+                } catch (RuntimeException x) {
+                    thrown = x; throw x;
+                } catch (Error x) {
+                    thrown = x; throw x;
+                } catch (Throwable x) {
+                    thrown = x; throw new Error(x);
+                } finally {
+                    afterExecute(task, thrown); // 钩子方法，使得子类能够在执行任务之后做一些额外的处理
+                }
+            } finally {
+                task = null;
+                w.completedTasks++;
+                w.unlock();
+            }
+        }
+        completedAbruptly = false;
+    } finally {
+        processWorkerExit(w, completedAbruptly);
+    }
+}
+```
+
+<br />
+
+#### `submit`
+
+`submit` 方法在 `Executor` 方法中定义，对于 `ThreadPoolExecutor` 来讲，具体的实现是在其父类 `AbstractExecutorService` 来完成的
+
+`ExecutorService` 中对于 `submit` 方法有以下三种形式：
+
+```java
+public interface ExecutorService extends Executor {
+    // 提交 Callable 任务，该任务会带有返回值
+    <T> Future<T> submit(Callable<T> task);
+    
+    // 提交 Runnable 任务，该任务带有返回值
+    <T> Future<T> submit(Runnable task, T result);
+    
+    // 不带返回值的任务
+    Future<?> submit(Runnable task);
+}
+```
+
+在 `AbstractExecutorService` 中的具体实现如下：
+
+```java
+public abstract class AbstractExecutorService implements ExecutorService {
+    public Future<?> submit(Runnable task) {
+        if (task == null) throw new NullPointerException();
+        RunnableFuture<Void> ftask = newTaskFor(task, null);
+        execute(ftask);
+        return ftask;
+    }
+
+    public <T> Future<T> submit(Runnable task, T result) {
+        if (task == null) throw new NullPointerException();
+        RunnableFuture<T> ftask = newTaskFor(task, result);
+        execute(ftask);
+        return ftask;
+    }
+
+    public <T> Future<T> submit(Callable<T> task) {
+        if (task == null) throw new NullPointerException();
+        RunnableFuture<T> ftask = newTaskFor(task);
+        execute(ftask);
+        return ftask;
+    }
+}
+
+// execute 是 Executor 中对于任务的执行操作，由具体的子类来实现
+```
+
+主要关心的为 `newTaskFor` 方法，用于创建对应的执行对象，`AbstractExecutorService` 中的 `newTaskFor` 的方法实现如下：
+
+```java
+// FutureTask 是 Future 的具体实现
+
+protected <T> RunnableFuture<T> newTaskFor(Runnable runnable, T value) {
+    return new FutureTask<T>(runnable, value);
+}
+
+protected <T> RunnableFuture<T> newTaskFor(Callable<T> callable) {
+    return new FutureTask<T>(callable);
+}
+```
+
+<br />
+
+### 执行流程
+
+`ThreadPoollExecutor` 处理任务的流程如下：
+
+![线程池.png](https://s2.loli.net/2021/12/13/1XkEDCznFbGrRms.png)
+
+1. 当提交一个任务时，如果当前线程池中的线程数量没有达到基本大小 `coreSize`，那么将会直接创建一个新的线程来执行这个任务
+2. 当线程池中的数量已经达到了基本大小 `coreSize`，但是此时的阻塞队列（工作队列）没有满，那么将会将该任务放入到阻塞队列中
+3. 如果此时线程池中线程的数量已经达到了基本大小，而且此时阻塞队列已经满了，并且此时线程池中的线程数量小于最大大小`maxSize`，那么将会创建额外的线程来执行这个任务
+4. 如果此时线程池中线程的数量已经达到了最大大小 `maxSize`，此时再提交的任务将会使用预先定义的饱和策略进行处理
+
+
+
+<br />
+
+### 线程池大小
+
+需要具体问题具体分析，一般的推荐的基本大小如下：
+
+- 对于 CPU 密集型的程序，一般线程池的大小比较小，为 $N_{cpu} + 1$
+
+- 对于 IO 密集型的程序，一般设置为 $2\times N_{cpu}$  是合理的
+
+- 混合型
+
+  得到可用的 CPU 核心数：`N = Runtime.getRuntime().availableProcessors()`
+
+  定义以下一些变量：
+
+$$
+\begin{align*}
+&N_{cpu} = number \; of \; CPU \;(CPU 的总核心数)\\
+&U_{cpu} = tagret \; CPU \; utilization\;(0\leq U_{cpu}\leq\quad CPU的使用率)\\
+&\frac{W}{C} = ratio\; of \; wait \; time \; to \; compute \; time\; (等待计算的时间所占的比重)
+\end{align*}一般来讲，设置线程池最优的大小为：
+$$
+
+$$
+N_{threads} = N_{cpu} \ast U_{cpu} \ast(1 + \frac{W}{C})
+$$
+
+以上只是推荐的基本大小，具体受到内存、文件句柄、套接字句柄等一系列资源限制的影响。但是线程池大小的上限还是比较容易计算的，只需要计算每个任务对该资源的需求量，然后用该资源的可用总量除以每个任务的需求量，得到的结果就是线程池大小的上限
 
 
 
