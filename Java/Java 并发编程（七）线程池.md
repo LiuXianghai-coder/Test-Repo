@@ -49,6 +49,10 @@ public interface Executor {
 
 `Executor` 基于 “生产者—消费者” 模式，提交任务的操作相当于生产者（生产待完成的工作单元），执行任务的线程则相当于消费者（执行这些工作单元）。在 Java 程序中，如果要实现一个 “生产者—消费者” 的设计，最简单的方式通常就是使用 `Executor`<sup>[1]</sup>
 
+`Executor` 的具体的类结构如下所示：
+
+![AbstractExecutorService.png](https://s2.loli.net/2021/12/14/UFPvYidBe8aMqX2.png)
+
 <br />
 
 ### 工作单元
@@ -397,6 +401,82 @@ public class TimingThreadPool extends ThreadPoolExecutor {
 ```
 
 <br />
+
+### ScheduledThreadPoolExecutor
+
+#### 执行流程
+
+`ScheduledThreadPoolExecutor` 通过延时队列来实现，具体的执行流程如下图所示：
+
+<img src="https://aaccompany.github.io/2020/02/13/Executor%E6%A1%86%E6%9E%B6/9.jpg">
+
+1. 首先，通过 `scheduleAtFixedRate` 或 `scheduleWithFixedDelay` 指定对应的任务与执行延迟
+2. `ScheduledThreadPoolExecutor` 会将这个任务首先添加到延时队列中，取出最小延迟的任务，然后等待并执行
+3. 之后再检查是否是周期性的任务，如果是周期性的任务需要再将它加入到延迟队列中
+
+<br />
+
+#### 获取任务
+
+获取任务的具体流程如下图所示：
+
+<img src="https://aaccompany.github.io/2020/02/13/Executor%E6%A1%86%E6%9E%B6/11.jpg" style="zoom:80%">
+
+获取任务的执行流程：
+
+1. 获取 `Lock`
+
+2. 获取周期任务
+
+   2.1 如果此时的 `PriorityQueue` 为空，那么将在 `Condition` 上阻塞
+
+   2.2 此时 `PriorityQueue` 不为空，并且此时 `PriorityQueue` 的第一个任务还没有到达指定的执行时间，那么在这种情况下依旧会阻塞
+
+   2.3 此时已经获取到了执行的任务，此时需要首先需要尝试唤醒在 `Condition` 中
+
+3. 释放 `Lock`
+
+<br />
+
+#### 执行任务
+
+`ScheduledFutureTask` 是任务执行的载体，构建该任务时关键的三个参数：
+
+- `time`：表示任务将要被执行的具体的时间
+- `sequenceNumber`：任务被添加时设置的序号
+- `period`：任务执行的间隔周期
+
+具体的结构示意如下所示：
+
+<img src="https://img-blog.csdnimg.cn/2018121216155584.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2VuX2pva2Vy,size_16,color_FFFFFF,t_70">
+
+线程 1 获取任务并执行的步骤如下：
+
+1. 首先从延迟队列中获取一个已经到达的 `ScheduledFutureTask`
+2. 线程 1 执行任务
+3. 修改 time 变量，使得这个任务能够周期性地执行
+4. 将修改之后的任务再放回到原来的延迟队列中
+
+<br />
+
+#### 放回任务
+
+放回任务的示意图如下所示：
+<img src="https://aaccompany.github.io/2020/02/13/Executor%E6%A1%86%E6%9E%B6/12.jpg" style="zoom:80%">
+
+执行流程：
+
+1. 获取 `Lock`
+
+2. 添加周期任务
+
+   值得注意的是在 2.1 步骤中，当发现 `PriorityQueue` 中已经存在元素时，需要唤醒在 `Condition` 中等待的线程，使得他们能够执行后续的任务
+
+3. 释放 `Lock`
+
+<br />
+
+
 
 ### 任务的执行
 
