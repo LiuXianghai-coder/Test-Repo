@@ -4,3 +4,5 @@ imgData.txt
 img.txt
 *.jar
 *.class
+**/.idea
+**/target
