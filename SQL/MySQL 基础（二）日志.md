@@ -272,3 +272,10 @@ UPDATE 操作对应的 undo log 日志类型为 `TRX_UNDO_UPD_EXIST_REC`， 对�
 
     针对更新主键这种类型的操作，首先在 delete mark 阶段会记录一条 `TRX_UNDO_DEL_MARK_REC` 的删除 undo log，然后再插入新的数据时会产生一条 `TRX_UNDO_INSERT_REC` 的插入 undo log，即，每次对主键的更新都会产生两条 undo log
 
+<br />
+
+## bin 日志
+
+bin log 记录除了数据查询之外的所有的 `DDL` 和 `DML`，通过将这些数据通过二进制的形式追加写入到文件中，以事件的形式记录。
+
+bin log 没有与 redo log 的最大区别在于 bin log 的写入只会是追加写入，而 redo log 则是通过循环的方式来实现数据的写入的
