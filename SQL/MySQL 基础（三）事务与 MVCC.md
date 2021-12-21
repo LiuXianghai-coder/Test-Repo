@@ -86,7 +86,7 @@ SQL 标准定义了以下四种隔离级别：
 
 <br />
 
-四种隔离级别的比较如下表所示：
+四种隔离级别的比较如下表所示：<sup>[4]</sup>
 
 <table class="wikitable">
 <tbody><tr>
@@ -134,7 +134,7 @@ MVCC（Multi-Version Concurrency Control）：多版本并发控制，通过记�
 
 每次对数据执行操作之后，都会将旧值放入到放入到一条 undo 日志中，随着修改的次数增多，所有的版本都通过 `record` 的 `roll_pointer` 属性连接成为一条链表，这个链表就称为 ”版本链“
 
-具体的示意图如下图所示：
+具体的示意图如下图所示：<sup>[3]</sup>
 ![image.png](https://s2.loli.net/2021/12/20/MxZTtndNA1qVGSL.png)
 
 假设现在两个事务 T1 和 T2，两者的事务 id 分别为 trx=85 和  trx=90，现在 T1 开启了事务，准备将 `tb_student` 中 id = 5 的记录的 `name` 列的值首先更改为 "a"，再更改为 "b"，T2 也开启了事务，准备将 `tb_student` 中 id = 5 的记录的 `name` 的列的值首先修改为 ”c“，再修改为 ”d“。
@@ -168,11 +168,13 @@ ReadView 中关键的四个属性：
 
 <br />
 
-#### ReadView 的生成时机
+ReadView 的生成时机
 
 Read Committed 和 Repeatable Read 隔离级别在 MVCC 上的最大区别在于 ReadView 的生成时机的不同，这种不同直接导致了这两种隔离级别对于 ”不可重复读“ 问题的处理。
 
-对于 Read Committed，在一个事务中，每次读取数据之前都会生成一个 ReadView，而对于 Repeatable Read，在一个事务中，只有在第一次读取数据时生成一个 ReadView
+对于 Read Committed，在一个事务中，每次读取数据之前都会生成一个 ReadView，这样的话就会使得其它事务对于数据的修改对于当前事务来讲也是可见的，因此存在 “不可重复读“ 的问题，而对于 Repeatable Read，在一个事务中，只有在第一次读取数据时生成一个 ReadView，这样就保证了在当前事务的执行过程中是无法看到别的事务对于数据的修改，这就避免了 “不可重复读” 问题的出现
+
+
 
 <br />
 
@@ -181,3 +183,7 @@ Read Committed 和 Repeatable Read 隔离级别在 MVCC 上的最大区别在于
 <sup>[1]</sup> https://zh.wikipedia.org/wiki/ACID
 
 <sup>[2]</sup> 《高性能 MySQL》（第三版）
+
+<sup>[3]</sup> https://mp.weixin.qq.com/s/sxlq4kdOaCi5jdsWAnpiBw
+
+<sup>[4]</sup> https://zh.wikipedia.org/wiki/%E4%BA%8B%E5%8B%99%E9%9A%94%E9%9B%A2
