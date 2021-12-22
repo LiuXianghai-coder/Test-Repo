@@ -424,9 +424,22 @@ InnoDB 通过 `innodb_autoinc_lock_mode` 变量来决定采用的方式，该变
 对于锁定读的语句，可以归结为以下四种语句：<sup>[1]</sup>
 
 - 语句 1：`SELECT …… LOCK IN SHARED MODE`
+
+    根据隔离级别加上对应的 S 记录锁或 next-key 锁
+
 - 语句 2：`SELECT …… FOR UPDATE `
+
+    根据隔离级别加上 X 记录锁或 next-key 锁
+
 - 语句 3：`UPDATE ……`
+
+    当更新二级索引时，所有被更新的二级索引节点都会加上与 X 记录锁功能相同的隐式锁，其它与 `SELECT …… FOR UPDATE` 类似
+
+    对于隔离级别为 “READ UNCOMMITTED” 和 “READ COMMITTED” 的情况，采用的是一种 **半一致读** 的方式来执行 `UPDATE` 语句
+
 - 语句 4：`DELETE ……`
+
+    与 `UPDATE` 类似，当表中包含二级索引，那么在二级索引记录在被删除之前都需要加上与 X 记录锁功能相同的隐式锁
 
 注意：之所以语句 3 和 语句 4 都算做是锁定读，这是因为在 `UPDATE` 或 `DELETE` 时都需要隐式地查找相应的数据，因此也被视为是一种锁定读
 
@@ -446,6 +459,20 @@ InnoDB 通过 `innodb_autoinc_lock_mode` 变量来决定采用的方式，该变
 
    ICP 只适用于二级索引，并且只适用于 `SELECT` 语句。他是用来把查询中与被使用索引相关的搜索条件下推到存储引擎中去判断，而不是返回到 server 层再去判断，ICP 只是为了减少回表的次数，也就是减少读取完整的聚簇索引记录的次数，从而减少 IO 的次数
 
+   <br />
+
+   ICP 的官方解释：
+
+   > Index Condition Pushdown (ICP) is an optimization for the case where MySQL retrieves rows from a table using an index. Without ICP, the storage engine traverses the index to locate rows in the base table and returns them to the MySQL server which evaluates the `WHERE` condition for the rows. With ICP enabled, and if parts of the `WHERE` condition can be evaluated by using only columns from the index, the MySQL server pushes this part of the `WHERE` condition down to the storage engine. The storage engine then evaluates the pushed index condition by using the index entry and only if this is satisfied is the row read from the table. ICP can reduce the number of times the storage engine must access the base table and the number of times the MySQL server must access the storage engine.
+
+   大致翻译如下：
+
+   > 索引条件下推（ICP）是针对 MySQL 在使用索引从表中提取数据的情况下所做的优化。如果没有使用 ICP，存储引擎就需要遍历所有的索引用于定位表中记录所在的位置，然后把这些记录返回给 MySQL Server，MySQL Server 再评估这些 WHERE 条件。如果使用了 ICP，并且 WHERE 条件的一部分可以仅使用索引中的列进行评估，那么 MySQL 就会将 WHERE 条件的这部分下推到存储引擎。然后存储引擎使用索引条目评估推送的索引条件，仅当满足该条件时才从表中读取记录。ICP 能够减少存储引擎必须访问基础表的次数以及减少 MySQL Server 访问存储引擎的次数
+
+   使用到了 <a href="https://translate.google.cn/?sl=en&tl=zh-CN&op=translate">Google 翻译</a>，并结合了一些自身的理解。
+
+   值得注意的一点是：InnoDB 的 ICP 只支持二级索引，并且需要访问整个表的所有记录的时候
+
 4. 执行回表操作，获取到对应的聚簇索引记录，并加锁
 
 5. 判断边界条件是否成立，如果还在边界内，则执行步骤 6；否则，如果隔离级别为 Read Uncommitted 或 Read Committed，则需要释放掉加在该记录上面的锁，如果隔离级别为 Repeatable Read 或 Serializable，则不会释放记录上面的锁
@@ -456,13 +483,65 @@ InnoDB 通过 `innodb_autoinc_lock_mode` 变量来决定采用的方式，该变
 
 <br />
 
+注意：
+
+- 当隔离级别为 “READ UNCOMMITTED” 或 “READ COMMITTED” 时，如果匹配的模式为 “精准匹配”，那么将不会为扫描区间后面的一条记录加锁，如以下面的 SQL 语句为例
+
+    ```sql
+    SELECT * FROM tb_user WHERE name='tom' FOR UPDATE
+    ```
+
+- 当隔离级别为 “REPEATABLE READ”  或 “SERIALIZABLE” 时，如果匹配的模式为 “精准匹配“，那么将会为扫描区间后的一条记录加上间隙锁
+
+- 当二级索引无法查找到数据时，并且此时隔离级别为 隔离级别为 “REPEATABLE READ” 或 “SERIALIZABLE” ，如果此时的查找方式为精确查找，那么会为扫描区间的下一条记录加上**间隙锁**；如果不是精确查找，那么会为扫描区间的下一条记录加上一个 **next-key 锁**
+
+- 当隔离级别为 “REPEATABLE READ” 或 “SERIALIZABLE” ，使用聚簇索引，并且扫描区间为左闭区间，如果定位到的第一个聚簇索引记录的 number 值正好与扫描区间中的最小值相同，那么会为该聚簇索引加上 X类型的**记录锁**，参考上面介绍的，在 “REPEATABLE READ” 或 “SERIALIZABLE”  隔离级别下将会为记录加上 next-key 锁，注意这里的不同
+
+- 当隔离级别为 “REPEATABLE READ” 或 “SERIALIZABLE” ，使用自右向左的方式扫描记录，会给匹配到的第一条记录的下一条记录加上 **间隙锁**
+
+<br />
+
 ### 半一致性读
+
+**当隔离级别为 “READ UNCOMMITTED” 或 “READ COMMITTED” 时**，执行 `UPDATE` 语句时将会使用半一致性读
+
+半一致性读，有关的介绍如下：<sup>[2]</sup> 
+
+> - 是一种用在 Update 语句中的读操作（一致性读）的优化，是在 RC 事务隔离级别下与一致性读的结合。
+> - 当 Update 语句的 where 条件中匹配到的记录已经上锁，会再次去 InnoDB 引擎层读取对应的行记录，判断是否真的需要上锁（第一次需要由 InnoDB 先返回一个最新的已提交版本）。
+> - 只在 RC 事务隔离级别下或者是设置了 innodb_locks_unsafe_for_binlog=1 的情况下才会发生。
+> - innodb_locks_unsafe_for_binlog 参数在 8.0 版本中已被去除（可见，这是一个可能会导致数据不一致的参数，官方也不建议使用了）。
+
+当 `UPDATE` 语句读取到被其它事务加了 X 锁的记录时， InnoDB 会将该记录的最新版本读取出来，然后判断该版本是否与 `UPDATE` 语句中的满足 `WHERE` 的后继条件。如果不满足，则不对该记录进行加锁，从而跳到下一条记录； 如果满足，则再次读取该记录并对其进行加锁。这样就可以减少在执行 `UPDATE` 的过程中被阻塞的概率
 
 
 
 <br />
 
 ### INSERT
+
+insert 语句在一般情况下都不需要在内存中生成锁结构，单纯地依靠隐式锁保护插入的记录
+
+在当前事务中插入一条记录之前，首先需要定位当前记录在 B+ 树中的位置。如果该位置的下一条记录已经被添加了间隙锁或者 next-key 锁，那么在当前的记录加上意向锁，然后当前的事务进入到等待状态
+
+在执行 `INSERT` 语句时会生成锁结构的两种特殊情况：
+
+- 重复键
+
+    当插入的记录的主键在表中已经存在了，那么将会出现插入异常的情况。但是在此之前，会对该主键值加上 S 锁。具体地，当隔离级别为 “READ UNCOMMITTED” 或 “READ COMMITTED” 时，会加上 S 型的**记录锁**；当隔离级别为 ”REPEATABLE READ“ 或 ”SERIALIZABLE“ 时，会加上 S型的 next-key 锁
+
+    当与唯一的二级索引重复，在这种情况下，无论什么隔离级别，都会对已经存在的 B+ 树中的那条唯一的二级索引加上 next-key 锁
+
+    在使用 `INSERT...ON DUPLICATE KEY...` 这样的语法来插入记录时，如果遇到主键或者唯一的二级索引列的值重复，会对 B+ 树中已经存在的相同的键的记录加上 X 锁，而不是 S 锁
+
+- 外键检查
+
+    当插入记录的外键在主表中能够找到，那么在插入成功之前，无论当前事务的隔离级别是什么，只需要直接给主表对应的那条记录加上 S 型的记录锁即可
+
+    当插入记录的外键在主表中无法被找到，在这种情况下，就需要对隔离级别进行分类处理
+
+    - 当隔离级别为  “READ UNCOMMITTED” 或 “READ COMMITTED” 时，并不对记录进行加锁
+    - 当隔离级别为  ”REPEATABLE READ“ 或 ”SERIALIZABLE“ ，对主表查询不到的那个键附近的记录加上 **间隙锁**
 
 
 
@@ -471,3 +550,5 @@ InnoDB 通过 `innodb_autoinc_lock_mode` 变量来决定采用的方式，该变
 参考
 
 <sup>[1]</sup> https://mp.weixin.qq.com/s/9LRFYGquXWpMCeyAonNcMQ
+
+<sup>[2]</sup> https://cloud.tencent.com/developer/article/1651628
