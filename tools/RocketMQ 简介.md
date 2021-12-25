@@ -128,10 +128,14 @@ RocketMQ 的网络部署特点：
 
   顺序消费指的是消费一类消息时，能够按照发送的顺序来进行消费。例如：如果一个订单产生了三条消息，分别为：订单创建、订单付款、订单完成，消费这类消息时必须按照这个顺序来消费才有意义。RocketMQ 可以严格地保证消息有序
 
+<<<<<<< Updated upstream
   顺序消费分为全局顺序消费和分区顺序消费，全局顺序消费是指某个 Topic 下的所有消息都要保证顺序；部分顺序消费只要保证每一组消息被顺序消费即可
 
   - 全局顺序消费：对于一个指定的 Topic，所有消息严格按照先进先出的顺序进行发布和消费。适用场景：性能要求不高、所有消息严格按照 FIFO 的原则进行消息发布的消费的场景
   - 分区顺序消费：对于指定的一个 Topic，所有消息根据 sharding key 进行分区。同一个分区内的消息严格按照 FIFO 的顺序进行发布和消费。sharding key 是顺序消息中用来区分不同分区的关键字段，和普通消息的 key 是完全不同的概念。使用场景：性能要求高、以 sharding key 作为分区字段，在同一个区块中严格按照 FIFO 原则进行消息发布和消费的场景
+=======
+
+>>>>>>> Stashed changes
 
 - 消息过滤
 
@@ -404,7 +408,7 @@ RocketMQ 中的负载均衡都在 Client 端完成，具体来说的话，主要
 
     Producer 端在发送消息的时候，会先根据 Topic 找到指定的 `TopicPublishInfo`，在获取了`TopicPublishInfo` 路由信息后，RocketMQ 的客户端在默认方式下 `selectOneMessageQueue()` 方法会从`TopicPublishInfo` 中的 `messageQueueList` 中选择一个队列（ `MessageQueue` ）进行发送消息。
 
-    具体的容错策略均在 `MQFaultStrategy` 这个类中定义。这里有一个 `sendLatencyFaultEnable` 开关变量，如果开启，在随机递增取模的基础上，再过滤掉 not available 的 Broker 代理。所谓的 `latencyFaultTolerance`，是指对之前失败的，按一定的时间做退避。例如，如果上次请求的 latency 超过550Lms，就退避3000Lms；超过1000L，就退避60000L；如果关闭，采用随机递增取模的方式选择一个队列（`MessageQueue`）来发送消息，`latencyFaultTolerance` 机制是实现消息发送高可用的核心关键所在
+    具体的容错策略均在 `MQFaultStrategy` 这个类中定义。这里有一个 `sendLatencyFaultEnable` 开关变量，如果开启，在随机递增取模的基础上，再过滤掉 not available 的 Broker 代理。所谓的 `latencyFaultTolerance`，是指对之前失败的，按一定的时间做退避。例如，如果上次请求的 latency 超过 550Lms，就退避 3000Lms；超过 1000L，就退避 60000L；如果关闭，采用随机递增取模的方式选择一个队列（`MessageQueue`）来发送消息，`latencyFaultTolerance` 机制是实现消息发送高可用的核心关键所在
 
 - Consumer 的负载均衡
 
