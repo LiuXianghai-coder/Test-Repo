@@ -365,7 +365,7 @@ RocketMQ的消息存储是由 `CommitQueue` 和 `CommitLog` 配合完成的，�
 
 - `IndexFile`
 
-    `IndexFile`（索引文件）提供了一种可以通过 key 或时间区间来查询消息的方法。Index 文件的存储位置是：`$HOME \store\index$​{fileName}`，文件名 `fileName` 是以创建时的时间戳命名的，固定的单个 `IndexFile` 文件大小约为 400M，一个 `IndexFile` 可以保存 2000W个索引，`IndexFile` 的底层存储设计为在文件系统中实现 `HashMap` 结构，故 RocketMQ 的索引文件其底层实现为 hash 索引。
+    `IndexFile`（索引文件）提供了一种可以通过 key 或时间区间来查询消息的方法。Index 文件的存储位置是：`$HOME \store\index$​{fileName}`，文件名 `fileName` 是以创建时的时间戳命名的，固定的单个 `IndexFile` 文件大小约为 400M，一个 `IndexFile` 可以保存 2000W 个索引，`IndexFile` 的底层存储设计为在文件系统中实现 `HashMap` 结构，故 RocketMQ 的索引文件其底层实现为 hash 索引。
 
     <br />
 
@@ -408,7 +408,7 @@ RocketMQ 中的负载均衡都在 Client 端完成，具体来说的话，主要
 
     Producer 端在发送消息的时候，会先根据 Topic 找到指定的 `TopicPublishInfo`，在获取了`TopicPublishInfo` 路由信息后，RocketMQ 的客户端在默认方式下 `selectOneMessageQueue()` 方法会从`TopicPublishInfo` 中的 `messageQueueList` 中选择一个队列（ `MessageQueue` ）进行发送消息。
 
-    具体的容错策略均在 `MQFaultStrategy` 这个类中定义。这里有一个 `sendLatencyFaultEnable` 开关变量，如果开启，在随机递增取模的基础上，再过滤掉 not available 的 Broker 代理。所谓的 `latencyFaultTolerance`，是指对之前失败的，按一定的时间做退避。例如，如果上次请求的 latency 超过 550Lms，就退避 3000Lms；超过 1000L，就退避 60000L；如果关闭，采用随机递增取模的方式选择一个队列（`MessageQueue`）来发送消息，`latencyFaultTolerance` 机制是实现消息发送高可用的核心关键所在
+    具体的容错策略均在 `MQFaultStrategy` 这个类中定义。这里有一个 `sendLatencyFaultEnable` 开关变量，如果开启，在随机递增取模的基础上，再过滤掉 not available 的 Broker 代理。所谓的 `latencyFaultTolerance`，是指对之前失败的，按一定的时间做退避。例如，如果上次请求的 latency 超过 550 L ms，就退避 3000 L ms；超过 1000 L，就退避 60000 L；如果关闭，采用随机递增取模的方式选择一个队列（`MessageQueue`）来发送消息，`latencyFaultTolerance` 机制是实现消息发送高可用的核心关键所在
 
 - Consumer 的负载均衡
 
@@ -421,8 +421,6 @@ RocketMQ 中的负载均衡都在 Client 端完成，具体来说的话，主要
     > 1. 遍历 Consumer 下所有的 Topic，根据 Topic 订阅所有的消息
     > 2. 获取同一 Topic 和 Consume Group 下的所有 Consumer
     > 3. 根据具体的分配策略来分配消费队列，分配的策略包含：平均分配、消费段配置等。
-
-
 
 
 
