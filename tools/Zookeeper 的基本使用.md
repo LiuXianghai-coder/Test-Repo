@@ -438,18 +438,57 @@ Zookeeper 集群中的角色介绍
 
 具体的集群搭建步骤可以参考：https://www.cnblogs.com/ysocean/p/9860529.html
 
-这里比较关心的是 Leader 的选举机制以及集群中数据的同步策略
+<br />
 
-- Leader 的选举机制
+#### Leader 的选举机制
 
-    
+由于 Zookeeper 通常是采用集群的方式部署，在集群中一般会以一对多的形式进行部署。为了保证数据的一致性，Zookeeper 采用了 ZAB （Zookeeper Atomic Broadcast） 协议来解决数据一致性的问题
 
-- 数据同步策略
+在 ZAB 协议中定义了以下几种节点的状态：
 
+1. Looking：此时节点的状态处于选举中的状态，此时可能是由于 Leader 崩溃了，正在重新选举 Leader
+2. Following：Follower 节点此时所处的状态
+3. Leading：Leader 节点所处的状态
+4. Observer：观察者节点所处的状态
 
+<br />
+
+选举流程：
+
+在进行 Leader 选举的过程中，一台机器无法完成 Leader 的选举，至少需要两台机器才能开始 Leader 的选举任务，这里以 3 台机器组成的服务器集群为例，介绍一下 Leader 的选举流程
+
+1. 第一轮 Leader 选举投票
+
+    假设此时只有 Server 1 和 Server 2 这两台机器启动了，在这种情况下，这两个 Server 都会将自己视为 Leader 参与选举，进行一次投票（给自身投票）。这次的投票会包含所推荐的 Server 的 `myid` 和 `ZXID` 两个字段，假设此时 Server 1 对应的两个属性为 （1, 0），Server 2 的这两个属性为（2, 0），这两个投票信息会发送到集群中的其它机器
+
+    投票结束之后，此时每个 Server 应该都会含有一个候选票的集合，按照如下的规则进行比较，选择合适的投票放入选票箱：首先对比 `ZXID`，优先选择 `ZXID` 较大的投票；如果 `ZXID` 相同，则再比较 `myid`，优先选择 `myid` 较大的选票
+
+    因此，最终两个 Server 中会将 Server 2 的投票作为第一次选票的结果
+
+2. 第二轮 Leader 选举投票
+
+    首先每个Server 将第一轮得到的选票结果再投出去，按照第一轮中选票的规则再选择一次投票，本次投票结束之后，将会统计投票的信息，判断是否已经有超过一半的机器收到了相同的投票信息，对于此时的 Server 1 和 Server 2 而言，此时集群中的两台机器都已经将 `myid` 为 2 的机器作为了最优的投票，已经超过了集群中机器数量的一般，因此此时 Server 2 就是新选择出来的 Leader 节点
+
+3. 如果此时第三台机器在选票完成之后再加入到集群中，发现已经有 Leader 节点了，那么自动将自己视为 Follower 节点
+
+<br />
+
+在 Leader 选举完成之后，会周期性的不断向 Follower 发送心跳，以检测 Follower 节点是否存活；当 Leader 节点崩溃之后，所有的 Follower 节点将会进入 Looking 状态，按照上面的选举流程重新选举一个新的 Leader，在这个选举的过程中，Zookeeper 集群不能向外界提供服务
+
+<br />
+
+#### 数据同步策略
+
+具体数据同步如下图所示：
+
+![zk-data.draw.drawio.png](https://s2.loli.net/2021/12/29/Q15a8rE4jUkDRZ3.png)
+
+如果客户端已经连接了 Leader 节点，那么将会直接将数据写入到 Leader 节点；如果客户端连接的是 Follower 节点，那么 Follower 节点会将数据转发给 Leader 节点，Leader 节点再将数据写入到 Follower 节点中
 
 <br />
 
 参考：
 
 <sup>[1]</sup> https://mp.weixin.qq.com/s/WW8vtEbRS3xQpx67kPmqTQ
+
+<sup>[2]</sup> https://www.cnblogs.com/leesf456/p/6107600.html
