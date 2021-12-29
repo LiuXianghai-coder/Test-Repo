@@ -344,9 +344,107 @@ private final static byte[] NEW_VALUE_BYTES = "xhliu-new".getBytes();
 
 ### Zookeeper 分布式锁
 
+如果要直接使用 Zookeeper 来实现分布式锁，一般情况下还是建议直接使用成熟的第三方工具类，避免自己手动来实现，但是实现原理是一定要弄清楚的
+
+Curator 也提供了关于 Zookeeper 分布式锁的实现，直接使用即可，使用之前需要添加以下的依赖项：
+
+```xml
+<dependency>
+    <groupId>org.apache.curator</groupId>
+    <artifactId>curator-recipes</artifactId>
+    <version>${curator.version}</version> <!-- 具体与上文的 Curator FrameWork 对应 -->
+    <exclusions>
+        <!-- 在上文中已经引入了 curator framework 的依赖，这里就不再需要了 -->
+        <exclusion>
+            <groupId>org.apache.curator</groupId>
+            <artifactId>curator-framework</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
+```
+
+<br />
+
+读写锁
+
+- 读锁
+
+    多个客户端都可以执行读取的操作，彼此之间不会阻塞，在这个基础之上有一个前提条件：不存在对该资源加上了写锁的客户端
+
+    可以 Zookeeper 来实现分布式的读锁，可以按照如下步骤来实现：
+
+    1. 首先创建一个 `/lock` 的 znode，用于区分。在这个 znode 的节点下面创建临时序号节点 `/lock/READ-`，表示将要获取的 “读锁”
+    2. 然后检查 `/lock` 下面的所有子节点，按照临时节点的顺序进行排序
+    3.  检查在这个读锁之前是否已经存在写锁，如果存在写锁则注册一个对前一个写锁的监听器，然后阻塞该读锁的获取
+    4. 如果监听器检测到前一个写锁已经释放了，那么该读锁将会成功地被获取
+
+    <br />
+
+    使用 Curator 来直接使用 Zookeeper 实现的分布式读锁：
+
+    ```java
+    // 注入之前配置好的 CuratorFramework 配置类
+    @Resource
+    private CuratorFramework curatorClient;
+    
+    void getReadLock() throws Exception {
+        InterProcessReadWriteLock lock =
+            new InterProcessReadWriteLock(curatorClient, "/lock");
+        InterProcessMutex readLock = lock.readLock();
+    
+        log.info("等待获取读锁.......");
+        readLock.acquire();
+        log.info("获取读锁成功，进入下一步的操作");
+    
+        Thread.sleep(10000);
+        readLock.release();
+        log.info("任务完成，释放读锁");
+    }
+    ```
+
+    <br />
+
+- 写锁
+
+    如果多个客户端同时去获取写锁，在同一时刻只能有一个客户端能够获得写锁，这些客户端之间会由于写锁的存在而相互阻塞。如果一个客户端想要获取一个写锁，在这之前也有一个前提条件：没有任何客户端对这个资源加上任意形式的锁（包括读锁和写锁）
+
+    Zookeeper 实现写锁的步骤如下：
+
+    1. 首先，依旧是在 `/lock` 的 znode 节点下，创建临时序号节点 `/lock/WRITE-`，该节点就代表将要获取的 写锁节点
+    2. 检查 `/lock` 节点下的子节点，按照临时节点的序号进行排队
+    3. 检查在该写锁之前是否存在锁（包括写锁和读锁），如果存在锁，那么先注册一个对前一个锁的监听器，然后阻塞该写锁的获取
+    4. 如果监听器检测到前一个锁已经释放，则成功获取该写锁
+
+<br />
+
+相比较于使用 Redis 通过 RedLock 算法来实现的分布式锁，Zookeeper 实现的分布式锁更加地稳定，如果可以，选择 Zookeeper 来实现分布式锁是一个更好的选择
 
 
 
+<br />
+
+### Zookeeper 注册中心
+
+除了实现分布式锁之外，Zookeeper 也可以用来实现服务注册和发现的功能，在此之前，需要搭建一个 Zookeeper 集群，才能保证注册中心的稳定性
+
+<br />
+
+#### Zookeeper 集群
+
+Zookeeper 集群中的角色介绍
+- Leader：处理集群的所有事务请求，同一个集群中只能有一个 Leader
+- Follower：只能处理读请求，同时也可以参与 Leader 的选举
+- Observer：只能处理读请求
+
+具体的集群搭建步骤可以参考：https://www.cnblogs.com/ysocean/p/9860529.html
+
+这里比较关心的是 Leader 的选举机制以及集群中数据的同步策略
+
+- Leader 的选举机制
+
+    
+
+- 数据同步策略
 
 
 
