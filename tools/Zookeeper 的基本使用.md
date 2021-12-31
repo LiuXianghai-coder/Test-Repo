@@ -62,7 +62,7 @@
 
 4.   现在，就可以启动 Zookeeper 了（前提是已经安装好了 JDK 并且设置了 `JAVA_HOME` 的环境变量），指定 `bin` 目录下对应的启动脚本即可：
 
-    ```shell
+    ```sh
     # 当前目录位于 Zookeeper 的解压目录下
     ./bin/zkServer.sh start
     ```
