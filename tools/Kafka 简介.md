@@ -1,4 +1,4 @@
-# Kafka 简介
+# Kafka 的基本使用
 
 Kafka 是一款分布式消息发布和订阅系统，最初的目的是作为一个日志提交系统来使用。现在，也可以作为一般的消息中间件来使用。
 
@@ -193,11 +193,530 @@ nohup ./bin/kafka-server-start.sh config/server.properties &
 
     可以看到，确实是收到了之前发送的五条消息
 
-- 
+- 多个消费者消费消息
+
+    首先，创建两个消费组分别为 `xhliu-group1` 和 `xhliu-group1`，如下面的命令所示：
+
+    ```bash
+    #  在一个终端中执行以下的命令，使用 --consumer-property 指定消费者所属的消费组
+    ./bin/kafka-console-consumer.sh --topic order --bootstrap-server 127.0.0.1:9092 --consumer-property group.id=xhliu-group1
+    
+    # 在另一个新的终端中执行下面的命令，将当前的消费者放入 xhliu-group2 的消费组中
+    ./bin/kafka-console-consumer.sh --topic order --bootstrap-server 127.0.0.1:9092 --consumer-property group.id=xhliu-group2
+    ```
+
+    注意，由于消费者是按照组的方式来划分的，因此不同的消费组能够消费相同的消息；从单个的消费组的角度来讲，每个消费组中在同一时刻只能有一个消费者去消费主题中的消息，这点要特别注意
+
+- 查看消费组的信息
+
+    执行以下的脚本文件即可查看对应的 Broker 下存在的消费组列表
+
+    ```bash
+    # 添加 --list 选项表示列出当前 Broker 下的所有消费组
+    ./bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 --list
+    ```
+
+    如果想要查看对应的消费组的具体细节信息，可以执行以下的脚本：
+
+    ```bash
+    # 添加 --group 选项查看对应的消费组信息，--describe 表示显示详细信息
+    ./bin/kafka-consumer-groups.sh --group xhliu-group1 --bootstrap-server 127.0.0.1:9092 --describe 
+    ```
+
+    ![2021-12-31 23-14-57 的屏幕截图.png](https://s2.loli.net/2021/12/31/qxPBMaoIOyVz8mY.png)
+
+    其中，比较重要的几个参数为 `CURRENT-OFFSET`（表示消费组已经消费的消息的偏移量）、`LOG-END-OFFSET`（主题对应分区消息的结束偏移量）、`LAG`（表示消费组未消费的消息的数量）
+
+    <br />
+
+<br />
+
+## Java 客户端整合
+
+有时可能希望直接使用 Java 来直接使用 Kafka 进行消息的发送，在那之前，需要添加 Kafka 对于 Java 的客户端依赖项，具体可以到 <a href="https://mvnrepository.com/">Maven 仓库 </a> 查找对应的依赖项：
+
+```xml
+<dependency>
+    <groupId>org.apache.kafka</groupId>
+    <artifactId>kafka-clients</artifactId>
+    <version>${kafka.version}</version> <!-- 选择对应的 kafka 的版本 -->
+</dependency>
+```
+
+<br />
+
+### 生产者端
+
+最好的做法是将属性配置成为一个单例的值对象，为了简单期间，这里只是做了一下配置，具体内容如下：
+
+```java
+// 生产者端的属性配置
+public Properties producerProp() {
+    Properties properties = new Properties();
+    // 设置 Kafka 的 Broker 列表
+    properties.put(BOOTSTRAP_SERVERS_CONFIG, "127.0.0.1:9092,127.0.0.1:9093");
+
+    /*
+            设置消息的持久化机制参数：
+            0 表示不需要等待任何 Broker 的确认；
+            1 表示至少等待 Leader 的数据同步成功；
+            -1 则表示需要等待所有的 min.insync.replicas 配置的副本的数量都成功写入
+         */
+    properties.put(ACKS_CONFIG, "1");
+
+    /*
+            配置失败重试机制，由于会重新发送消息，因此必须在业务端保证消息的幂等性
+         */
+    properties.put(RETRIES_CONFIG, 3); // 失败重试 3 次
+    properties.put(RECONNECT_BACKOFF_MS_CONFIG, 300); // 每次重试的时间间隔为 300 ms
+
+
+    /*
+            配置缓存相关的信息
+         */
+    properties.put(BUFFER_MEMORY_CONFIG, 32*1024*1024);  // 设置发送消息的本地缓冲区大小，这里设置为 32 MB
+    properties.put(BATCH_SIZE_CONFIG, 16*1024);  // 设置批量发送消息的大小，这里设置为 16 KB
+    
+    /*
+            batch 的等待时间，默认值为 0, 表示消息必须被立即发送，这里设置为 10 表示消息发送之后的 10 ms 内，
+            如果 Batch 已经满了，那么这个消息就会随着 Bathh 一起发送出去
+      */
+    properties.put(LINGER_MS_CONFIG, 10);
+
+    /*
+            配置 key 和 value 的序列化实现类
+         */
+    properties.put(KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+    properties.put(VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+
+    // 属性配置完成
+    return properties;
+}
+```
+
+配置完成之后，就可以通过 Java 来向 Kafka 来发送消息了，Kafka 对与 Java 的客户端接口提供了两种发送消息的方式：以同步阻塞的方式发送消息和以异步非阻塞的方式来发送消息，
+
+- 以同步阻塞的方式发送消息：
+
+    ```java
+    static final String TOPIC_NAME = "xhliu";
+    static final Integer PARTITION_TWO = 1;
+    static final Gson gson = new GsonBuilder().create();
+    
+    void syncSend() {
+        Properties producerProp = producerProp(); // 加载配置属性
+        Producer<String, String> producer = new KafkaProducer<>(producerProp);
+        Message message;
+    
+        for (int i = 0; i < 5; ++i) {
+            // 具体的消息实体
+            message = new Message(i, "BLOCK_MSG_" + i);
+            
+            // 生产者发送消息的记录对象
+            ProducerRecord<String, String> record = new ProducerRecord<>(
+                TOPIC_NAME, PARTITION_TWO,
+                String.valueOf(message.getId()), gson.toJson(message)
+            );
+    
+            try {
+                // 发送消息，得到一个 Future，关于这个类具体可以参考 《Java 并发编程实战》
+                Future<RecordMetadata> future = producer.send(record);
+                // Future 的 get() 方法将会阻塞当前的线程
+                RecordMetadata metadata = future.get();
+                // 打印发送之后的结果。。。。。
+                log.info("[topic]={}, [position]={}, [offset]={}", metadata.topic(),
+                         metadata.partition(), metadata.offset());
+            } catch (ExecutionException | InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+    ```
 
     
 
-    <br />
+- 以异步的方式发送消息
+
+    以异步的方式发送消息与同步的方式类似，最大的不同是通过异步的方式发送是通过哦注册回调函数来实现的，不会阻塞当前的线程，具体如下所示：
+
+    ```java
+    void asyncSend() throws InterruptedException {
+        Properties producerProp = producerProp(); // 加载配置属性
+        Producer<String, String> producer = new KafkaProducer<>(producerProp);
+        Message message;
+    
+        for (int i = 0; i < 5; ++i) {
+            message = new Message(i, "NO_BLOCK_MSG_" + i);
+    
+            ProducerRecord<String, String> record = new ProducerRecord<>(
+                TOPIC_NAME, PARTITION_TWO,
+                String.valueOf(message.getId()), gson.toJson(message)
+            );
+            
+            // 注册回调函数来处理发送之后的结果，避免阻塞当前的线程
+            producer.send(record, (metadata, e) -> {
+                if (e != null) {
+                    log.error("异步发送消息失败，", e);
+                    return;
+                }
+    
+                if (metadata != null) {
+                    log.info("[topic]={}, [position]={}, [offset]={}",
+                             metadata.topic(), metadata.partition(), metadata.offset());
+                }
+            });
+        }
+    }
+    ```
+
+    
+
+<br />
+
+### 消费者端
+
+消费者端的配置如下所示：
+
+```java
+public Properties consumerProp() {
+    Properties properties = new Properties();
+
+    /*
+            配置 Kafka 的 Broker 列表
+         */
+    properties.put(BOOTSTRAP_SERVERS_CONFIG, "127.0.0.1:9092,127.0.0.1:9093");
+
+    /*
+            配置消费组
+         */
+    properties.put(GROUP_ID_CONFIG, "xhliu-group1");
+
+    /*
+            Offset 的重置策略，对于新创建的一个消费组，offset 是不存在的，这里定义了如何对 offset 进行赋值消费
+            latest：默认值，只消费自己启动之后发送到主题的消息
+            earliest：第一次从头开始消费，之后按照 offset 的记录继续进行消费
+         */
+    properties.put(AUTO_OFFSET_RESET_CONFIG, "earliest");
+
+    /*
+            设置 Consumer 给 Broker 发送心跳的时间间隔
+         */
+    properties.put(HEARTBEAT_INTERVAL_MS_CONFIG, 1000);
+
+    /*
+            如果超过 10s 没有收到消费者的心跳，则将消费者踢出消费组，然后重新 rebalance，将分区分配给其它消费者
+         */
+    properties.put(SESSION_TIMEOUT_MS_CONFIG, 10*1000);
+
+    /*
+            一次 poll 最大拉取的消息的条数，具体需要根据消息的消费速度来设置
+         */
+    properties.put(MAX_POLL_RECORDS_CONFIG, 500);
+
+    /*
+            如果两次 poll 的时间间隔超过了 30s，那么 Kafka 就会认为 Consumer 的消费能力太弱，
+            将它踢出消费组，再将分区分配给其它消费组
+         */
+    properties.put(MAX_POLL_INTERVAL_MS_CONFIG, 30*1000);
+
+    /*
+            设置 Key 和 Value 的反序列化实现类
+         */
+    properties.put(KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+    properties.put(VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+
+    // 配置结束
+    return properties;
+}
+```
+
+对于消费端来讲，由于 Kafka 的消费模型是通过轮询的方式来实现的，因此就不存在所谓的同步和异步获取消息的方式。但是在消费完成消息之后，消费者需要发送一个 Offset 到对应的 Topic，表示这个消息已经被当前的消费者消费了，消费组中下一个消费消息的消费者直接从这这个位置的偏移量开始消费，这种消费之后提交 Offset 有两种方式：自动提交和手动提交
+
+- 自动提交的使用示例如下所示：
+
+    ```java
+    void autoCommitOffset() throws InterruptedException {
+        Properties properties = consumerProp();
+    
+        // 设置是否是自动提交，默认为 true
+        properties.put(ENABLE_AUTO_COMMIT_CONFIG, "true");
+        //  自动提交 offset 的时间间隔
+        properties.put(AUTO_COMMIT_INTERVAL_MS_CONFIG, "1000");
+    
+        Consumer<String, String> consumer = new KafkaConsumer<>(properties);
+        consumer.subscribe(Lists.newArrayList(TOPIC_NAME));
+    
+        // 指定当前的消费者在 TOPIC_NAME 上的 PARTITION_ONE 的分区上进行消费
+        //        consumer.assign(Lists.newArrayList(new TopicPartition(TOPIC_NAME, PARTITION_ONE)));
+        // 指定 consumer 从头开始消费
+        //        consumer.seekToBeginning(Lists.newArrayList(new TopicPartition(TOPIC_NAME, PARTITION_ONE)));
+        // 指定分区和 offset 进行消费
+        //        consumer.seek(new TopicPartition(TOPIC_NAME, PARTITION_ONE), 10);
+    
+        ConsumerRecords<String, String> records;
+        while (true) {
+            /*
+                    通过长轮询的方式拉取消息
+                 */
+            records = consumer.poll(Duration.ofMillis(1000));
+    
+            for (ConsumerRecord<String, String> record : records) {
+                log.info("[topic]={}, [position]={}, [offset]={}, [key]={}, [value]={}",
+                         record.topic(),record.partition(), record.offset(), record.key(), record.value());
+            }
+    
+            Thread.sleep(10000);
+        }
+    }
+    ```
+
+    使用自动提交可能会导致消息的丢失，这是因为在消费者在消费消息的过程中，可能由于系统崩溃等原因，使得消费者未能完全消费这条消息，但是自动提交 Offset 的方式又将这条消息标记为了 “已消费”，Kafka 不支持重复消费，因此此时这个消费组就无法再消费这条已经丢失的消息
+
+- 手动提交的示例如下所示：
+
+    ```java
+    void manualCommitOffset() throws InterruptedException {
+        Properties properties = (Properties) consumerProp.clone();
+    
+        // 设计提交 Offset 为手动提交，只需要将允许自动提交设置为 false 即可
+        properties.put(ENABLE_AUTO_COMMIT_CONFIG, "false");
+        Consumer<String, String> consumer = new KafkaConsumer<>(properties);
+        consumer.subscribe(Lists.newArrayList(TOPIC_NAME));
+    
+        ConsumerRecords<String, String> records;
+        while (true) {
+            /*
+                    通过长轮询的方式拉取消息
+                 */
+            records = consumer.poll(Duration.ofMillis(1000));
+    
+            for (ConsumerRecord<String, String> record : records) {
+                log.info("[topic]={}, [position]={}, [offset]={}, [key]={}, [value]={}",
+                         record.topic(),record.partition(), record.offset(), record.key(), record.value());
+            }
+    
+            if (records.count() > 0) {
+                /*
+                        手动同步提交 offset，当前线程会阻塞，知道 offset 提交成功
+                     */
+                consumer.commitSync();
+    
+                /*
+                        通过异步的方式来完成 offset 的提交
+                     */
+                /*
+                    consumer.commitAsync((offsets, e) -> {
+                        log.error("异常 offset={}", gson.toJson(offsets));
+                        if (e != null) {
+                            log.error("提交 offset 发生异常，", e);
+                        }
+                    });
+                    */
+            }
+    
+            Thread.sleep(2000);
+        }
+    }
+    ```
+
+    
+
+<br />
+
+## 与 Spring Boot 的整合
+
+如果使用的应用程序是使用 Spring Boot 的话，那么使用起来会比较方便，因为Spring Boot 已经将 Kafka 作为了可自动配置的 Bean，只需要加入对应的 `starter` 即可创建 `KafkaTemplate` 的 Bean 来直接向 Kafka 发送消息，在 Spring Boot 项目中添加如下的 `starter`：
+
+```xml
+<!-- 添加了这个依赖之后，就不用再天际 Kafka-Client 的依赖了，因为 spring-kafka 会自动引入这些依赖项 -->
+<dependency>
+    <groupId>org.springframework.kafka</groupId>
+    <artifactId>spring-kafka</artifactId>
+</dependency>
+```
+
+在正式使用之前，同样的需要配置对应的 Kafka 的相关信息，以 `application.yml` 为例，生产者和消费者的配置如下：
+
+```yaml
+spring:
+  kafka:
+    producer:
+      bootstrap-servers: 127.0.0.1:9092
+      acks: 1
+      retries: 3
+      buffer-memory: 33554432
+      # 消息的 key 和 value 的序列化实现类
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      batch-size: 16384
+      properties:
+        # 提交延时，当 Producer 积累的消息达到 batch-size 或者接收到消息 linger.ms 后，生产者就会将消息提交给 Kafka
+        # linger.ms 等于0，表示每当接收到一条消息的时候，就提交给 Kafka，这个时候 batch-size 上面配置的值就无效了
+        linger.ms: 10
+
+    consumer:
+      bootstrap-servers: 127.0.0.1:9092
+      group-id: order
+      enable-auto-commit: true # 是否自动提交 offset
+      auto-commit-interval: 100 # 提交 offset 的延时，即接受到消息多久之后提交 offset
+      # 当 Kafka 中没有初始 offset 或 offset 超出范围时，自动重置 offset
+      # earliest 表示第一次从头开始消费，之后再按照 offset 的记录继续消费
+      # latest（默认） 表示只消费自己启动之后收到的主题的信息
+      auto-offset-reset: earliest
+      max-poll-records: 200 # 批量消费的最大消息的数量
+      # 消息的 key 和 value 的反序列化实现类，可以自定义来实现
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        # 会话超时时间，如果 Consumer 超过这个时间没有发送心跳，就会出发 rebalance 操作
+        session.timeout.ms: 120000
+        # Consumer 请求超时时间
+        request.timeout.ms: 180000
+        # Kafka 会自动完成对象的序列化和反序列化，下面的配置则是表示可以被序列化的对象所在的包，即“可信任的”
+        spring:
+          json:
+            trusted:
+              packages: org.xhliu.kafkaexample.vo
+    listener:
+      ack-mode: record
+```
+
+<br />
+
+首先，定义消息对象实例对象类，如下所示：
+
+```java
+// 按照设计来讲，这里的消息应该是一个值对象，因此应该设计为 “不可变对象”
+public class Message {
+    private final int id;
+    private final String body;
+
+    // 由于 Spring 默认使用 Jackson 的方式来实现 Json 的序列化，因此这里配置 Jackson 使得其能够正常构建对象
+    @JsonCreator
+    public Message(
+            @JsonProperty("id") int id,
+            @JsonProperty("body") String body
+    ) {
+        this.id = id;
+        this.body = body;
+    }
+    // 省略 Getter 方法和 toString() 方法
+}
+```
+
+
+
+
+
+### 生产者端
+
+直接使用 `kafkaTemplate` 来发送消息即可
+
+- 以阻塞的方式发送消息
+
+    ```java
+    @Resource
+    private KafkaTemplate<String, Message> kafkaTemplate;
+    
+    // Spring 会自动引入 Jackson，因此在这里直接注入即可
+    @Resource
+    private ObjectMapper mapper;
+    
+    @GetMapping(path = "blockProducer")
+    public String blockProducer() throws Throwable {
+        List<Message> list = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            Message message = new Message(i, "BLOCKING_MSG_SPRINGBOOT_" + i);
+            ListenableFuture<SendResult<String, Message>> future =
+                kafkaTemplate.send(TOPIC_NAME, PARTITION_ONE, String.valueOf(message.getId()), message);
+    
+            SendResult<String, Message> result = future.get();
+            RecordMetadata metadata = result.getRecordMetadata();
+            log.info("---BLOCKING_MSG_SPRINGBOOT--- [topic]={}, [partition]={}, [offset]={}",
+                     metadata.topic(), metadata.partition(), metadata.offset());
+            list.add(message);
+        }
+    
+        return mapper.writerWithDefaultPrettyPrinter()
+            .writeValueAsString(list);
+    }
+    ```
+
+    
+
+- 以异步的形式发送消息
+
+    ```java
+    @GetMapping(path = "noBlockProducer")
+    public String noBlockProducer() throws Throwable {
+        List<Message> list = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            Message message = new Message(i, "NO_BLOCKING_MSG_SPRINGBOOT_" + i);
+            ListenableFuture<SendResult<String, Message>> future =
+                kafkaTemplate.send(TOPIC_NAME, PARTITION_ONE, String.valueOf(message.getId()), message);
+    
+            future.addCallback(new ListenableFutureCallback<>() {
+                @Override
+                public void onFailure(Throwable ex) {
+                    log.error("消息发送失败! ",  ex);
+                }
+    
+                @Override
+                public void onSuccess(SendResult<String, Message> result) {
+                    RecordMetadata metadata = result.getRecordMetadata();
+                    log.info("---BLOCKING_MSG_SPRINGBOOT--- [topic]={}, [partition]={}, [offset]={}",
+                             metadata.topic(), metadata.partition(), metadata.offset());
+                }
+            });
+    
+            list.add(message);
+        }
+    
+        return mapper.writerWithDefaultPrettyPrinter()
+            .writeValueAsString(list);
+    }
+    ```
+
+<br />
+
+### 消费者端
+
+在配置文件中已经配置了是否需要自动提交 Offset， Spring Boot 通过添加 `@KafkaListener` 来自动实现消费者对于消息的消费，具体使用如下所示：
+
+```java
+@KafkaListener(topics = {TOPIC_NAME}, groupId = CONSUMER_GROUP)
+public void listenGroup(ConsumerRecord<String, Message> record) {
+    log.info("[topic]={}, [position]={}, [offset]={}, [key]={}, [value]={}",
+             record.topic(),record.partition(), record.offset(), record.key(), record.value());
+    
+    // ack.acknowledge(); 手动提交 Offset，需要enable-auto-commit: false才可以
+}
+```
+
+如果想要配置消费组来消费多个 Topic 消息，可以像下面这么做：
+
+```java
+@KafkaListener(
+    groupId = "xhliu-group1", // 消费组名称
+    concurrency = "3",  // 每个消费组中创建 3 个 Consumer
+    topicPartitions = {
+        // 针对主题 xhliu，要消费分区 0 和 分区 1
+        @TopicPartition(topic = "xhliu", partitions = {"0", "1"}), 
+        // 针对主题 order，消费分区 0 和分区1，同时分区 1 从 offset=100 开始消费
+        @TopicPartition(
+            topic = "order", partitions = {"0"},
+            partitionOffsets = @PartitionOffset(partition = "1", initialOffset = "100")
+        )
+    }
+)
+public void listenGroupPro(ConsumerRecord<String, Message> record) {
+    Message message = record.value();
+
+    log.info("msgId={}, content={}", message.getId(), message.getBody());
+}
+```
+
+<br />
 
 参考：
 
