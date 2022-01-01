@@ -227,7 +227,32 @@ nohup ./bin/kafka-server-start.sh config/server.properties &
 
     其中，比较重要的几个参数为 `CURRENT-OFFSET`（表示消费组已经消费的消息的偏移量）、`LOG-END-OFFSET`（主题对应分区消息的结束偏移量）、`LAG`（表示消费组未消费的消息的数量）
 
-    <br />
+- 删除指定主题的消息
+
+    首先，需要创建一个删除消息的 `json` 文件，将这个文件命名为 `delete-order.json`， 具体如下所示：
+
+    ```json
+    {
+        "partitions": [ // 按照此分区列表的信息进行删除
+            {
+                "topic": "order", // 待删除的主题的名称
+                "partition": 0, // 分区编号
+                "offset": -1 // 删除的区间，-1 表示删除所有的消息
+            }
+            // 如果有多个分区，则需要添加多个 partition 对象
+        ],
+        "version": 1
+    }
+    ```
+
+    然后执行如下的脚本：
+
+    ```bash
+    # 按照 --offset-json-file 指定的 json 文件进行删除
+    ./bin/kafka-delete-records.sh --bootstrap-server 127.0.0.1:9092 --offset-json-file ./delete-order.json
+    ```
+
+    即可完成对 order 主题中分区编号为 0 的数据进行清除
 
 <br />
 
