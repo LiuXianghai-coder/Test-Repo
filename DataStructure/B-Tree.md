@@ -117,6 +117,10 @@ B 树的插入方式和 2-3 树的插入方式类似，当插入的数据所在�
 
 ### 实现
 
+```java
+www.slashdot.org www.princeton.edu
+```
+
 
 
 
