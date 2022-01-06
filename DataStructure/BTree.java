@@ -1,5 +1,3 @@
-package org.xhliu.kafkaexample;
-
 public class BTree<Key extends Comparable<Key>, Value> {
     private final int M;
 
