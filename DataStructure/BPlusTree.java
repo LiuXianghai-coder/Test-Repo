@@ -1,3 +1,10 @@
+/**
+* B+ 树的 Java 实现
+*
+* @author : xhliu
+* @param <K> : B+ 树中键值对存储元素索引的 key
+* @param <V> : B+ 树中实际存储数据的载体
+*/
 @SuppressWarnings("unchecked")
 public class BPlusTree<K extends Comparable<K>, V> {
 

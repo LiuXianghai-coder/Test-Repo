@@ -1,3 +1,11 @@
+
+/**
+* B 树的 Java 实现
+*
+* @author : xhliu
+* @param <Key> : B 树中键值对存储元素索引的 key 
+* @param <Value> : B 树中实际存储数据的载体
+*/
 public class BTree<Key extends Comparable<Key>, Value> {
     private final int M;
 
