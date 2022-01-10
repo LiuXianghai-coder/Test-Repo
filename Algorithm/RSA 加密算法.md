@@ -81,7 +81,7 @@ RSA 加密算法的可靠性源自于对于极大的整数做因数分解很难�
 3. 选择一个小于 $r$ 的正整数 $e$，使得 $e$ 和 $r$ 互质，并求得 $e$ 关于 $r$ 的模反元素 $d$
 4. 删除 $p$ 和 $q$
 
-经过上述操作之后，得到的 $(N, e)$ 就被称之为公钥，而 $(N, d)$ 就被称之为私钥。一般会选择两个非常大的质数，经过操作之后会再将这两个数字进行转码，就是一般见到的存储形式
+经过上述操作之后，得到的 $(N, e)$ 就被称之为公钥，而 $(N, d)$ 就被称之为私钥。一般会选择两个非常大的质数，经过操作之后会再将这两个数字进行转码，就是一般见到的存储形式x`
 
 <br />
 
@@ -123,6 +123,52 @@ $$
 因此 $n^{ed} \equiv n \pmod N$
 
 
+
+<br />
+
+## 具体实现
+
+由于 Java 存在 `BigInteger` 类来支持任意精度的数值计算，因此实现起来就会变得特别方便，具体实现代码如下所示：
+
+```java
+static void test(String text) {
+    int BIT_LENGTH = 2048;
+
+    Random rand = new SecureRandom();
+    BigInteger p = BigInteger.probablePrime(BIT_LENGTH / 2, rand);
+    BigInteger q = BigInteger.probablePrime(BIT_LENGTH / 2, rand);
+    // 计算 N
+    BigInteger n = p.multiply(q);
+
+    // 计算 r
+    BigInteger phi = p.subtract(BigInteger.ONE)
+        .multiply(q.subtract(BigInteger.ONE));
+
+    BigInteger e = TWO;
+
+    // 找到合适的 e
+    while (e.compareTo(phi) < 0) {
+        if (e.gcd(phi).intValue() == 1) break;
+        e = e.add(ONE);
+    }
+
+    BigInteger d = e.modInverse(phi); // 获得 e 的模反元素
+
+    BigInteger msg = new BigInteger(text.getBytes(UTF_8)); // 将消息转换为对应的整数
+    BigInteger enc = msg.modPow(e, n); // 相当于对 msg 做 e 次乘法，再对 n 求模
+
+    System.out.println("raw=" + text);
+    System.out.println("enc=" + enc);
+    BigInteger dec = enc.modPow(d, n);
+    System.out.println("dec=" + new String(dec.toByteArray(), UTF_8));
+}
+```
+
+假设现在输入的字符串为 “This is a simple text”，输出结果如下所示：
+
+<img src="https://s2.loli.net/2022/01/10/sHeO6RjYQfmapbk.png" alt="2022-01-10 22-10-49 的屏幕截图.png" style="zoom:150%;" />
+
+具体的，可以对编码后的数据进行特殊的处理，如：基于 16 位、基于 64 位 bit 的转换，就会变成常见的 key
 
 <br />
 
