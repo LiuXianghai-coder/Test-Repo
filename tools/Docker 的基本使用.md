@@ -112,7 +112,7 @@ Docker 和虚拟机类似，二者都是为了提供一个可靠的运行环境�
 
 2. 运行容器
 
-    在运行容器之前需要创建容器，但是 `docker run` 会自动完成这一步操作
+    在运行容器之前需要创建容器，但是 `docker run` 会自动完成这一步操作，可以通过 `docker create` 显式地创建一个容器，但是该命令不会启动容器
 
     使用如下的命令来创建 `rabbitmq` 对应的容器，并运行它：
 
@@ -139,13 +139,121 @@ Docker 和虚拟机类似，二者都是为了提供一个可靠的运行环境�
     sudo docker logs -f 21058bb96210 
     ```
 
-3. 修改挂载卷
+3. 挂载卷
 
-    默认情况下，每个运行时的容器都有自己的文件系统，别的容器无法干预当前正在运行的容器，这在一定程度上提高了每个应用之间的独立性。但是有时需要修改对应的配置文件，或者希望将某些插件加入到运行的容器中时，虽然也可以通过执行 `docker exec` 命令进入容器所在的底层内核来完成相关的操作，但是如果能够直接在宿主操作系统上直接完成无疑是一个更好的选择
+    有时运行数据库管理系统的容器，此时数据存放在容器内部独有的一个文件系统中，此时和宿主操作系统的交互将会变得比较麻烦，比如：希望执行宿主操作系统中的一个 `SQL` 脚本，或者希望将容器中的数据映射到宿主文件系统上。这种情况下，可以考虑将宿主机器上的一个目录挂载到容器上，使得容器和宿主机之间存在对应的关联关系：
 
-    
+    以 `PostgresQL` 的挂载卷为例：
 
-4. 
+    ```bash
+    sudo docker run 
+    -d --name my-postgres \
+    -p 5555:5432 \
+    -e POSTGRES_PASSWOED=12345678 \ 
+    -e PGDATA=/var/lib/postgresql/data/pgdata \
+    -v /root/pgdata:/var/lib/postgresql/data postgres
+    ```
+
+    注：`-e` 选项用于指定相关的启动参数，如环境变量等；`-v` 选项用于挂载卷
+
+    现在，容器中的数据将会映射到宿主文件系统的 `/root/pgdata` 目录下，如果对目录下的配置文件进行修改，同样也会映射到宿主操作系统的文件系统中
+
+    此时对于容器中的 `PostgresQL` 的数据库的操作，数据都会显式落到宿主机的挂载卷上，这样就保证了数据的持久性（即使容器被删除数据也不会丢失）
+
+    <br />
+
+    **注意**：并不建议在容器中运行数据库管理系统，这样做不仅增加了复杂性，同时也会降低数据库管理系统的性能
+
+4. 在容器中执行命令
+
+    前文介绍到，容器和虚拟机最大的不同之处在于容器复用了本地操作系统的内核。因此可以对运行中的容器执行本地操作系统的相关命令，`docker exec` 可以实现这一操作
+
+    ```bash
+    # 21058bb96210 是上文运行的 rabbitmq 容器的 id，-i 选项表示进入交互模式，
+    # -t 表示分配一个 tty，/bin/bash 表示在 tty 中执行的命令
+    sudo docker exec -it 21058bb96210 /bin/bash
+    ```
+
+    进入交互环境之后，会保留内核中原有的执行程序，因此可以运行基础的 `Linux` 命令，但是发行版可能和宿主机操作系统不一致，但是内核是一致的，如下图所示：
+
+    <img src="https://s6.jpg.cm/2022/01/12/Ls05wy.png" style="zoom:100%" />
+
+
+
+<br />
+
+## Dockerfile
+
+Dockerfile 是用于构建容器镜像的一系列指令，一个 Dockerfile 是一个包含了用户能够通过调用所有的命令汇编成一个镜像的文本文档。通过 `docker build` 命令可以根据 Dockerfile 文件来构建对应的镜像
+
+
+
+
+
+<br />
+
+## Docker 的架构
+
+Docker 的架构图如下所示：
+<img src="https://s6.jpg.cm/2022/01/12/LsaMK2.png" style="zoom:60%" />
+
+<sup>[2]</sup>
+
+- Docker daemon
+
+    Docker 守护进程和传统意义上的 `Unix` 守护进程不同，Docker 客户端和守护进程之间是通过 Rest API 而不是 Unix 套接字来实现通信的
+
+    Docker 守护进程会监听来自 Docker 客户端的请求，同时也会管理 Docker 对象：镜像、容器、网络等。一台主机上的 Docker 守护进程可以和其它主机上的 Docker 守护进程进行通信
+
+- Client
+
+    Docker 的客户端工具，负责发送相关的请求给 Docker daemon
+
+- Registry
+
+    Registry 存储了 Docker 镜像，类似于 Github 这种存储代码的仓库
+
+Docker 采用的是 “客户端—服务端” 的架构模式，单独的 `docker` 命令只是作为一个客户端工具来使用，实际有关容器以及镜像的操作都是由 Docker 守护进程来完成的。
+
+当本地的 Docker 客户端执行 `docker run` 命令时，首先会将请求发送到 Docker daemon，由 Docker daemon 来完成具体的操作；Docker daemon 首先检查本地是否存在对应的镜像，如果不存在对应的镜像，则需要首先到 Registry 中拉取对应的镜像；最后按照对应的镜像创建 Contianer 并启动
+
+<br />
+
+## 镜像的加载原理
+
+### 镜像的文件系统层
+
+Docker 的镜像是由一层一层的文件系统构成的，每层文件系统都是只读的（由容器创建的层可写），这种层级的文件系统也被称为 ”联合文件系统“ — UnionFS
+
+如下所示：
+
+<img src="https://s6.jpg.cm/2022/01/12/LsO0Re.png" style="zoom:50%" />
+
+比较关键的两个层级文件系统是 `bootfs` 和 `rootfs`
+
+- `bootfs`
+
+    主要包含了 `bootloader` 和 `kernel`，`bootloader` 的主要作用是引导加载 `kernel`。和 Linux 的启动类似，Linux 在启动时会首先加载 `bootfs`，同样地，在 Docker 最底层的也是 `bootfs`，尽管这两者并不是同一个东西，但是思想是一致的
+
+    Docker 的 `bootfs` 也用于加载内核相关的内容，在加载完成之后会将使用权交给 `kernel`，这点和 Linux 也是一致的（注意 Docker 的 `kernel` 复用了宿主机的 `kernel`）
+
+- `rootfs`（Base Image）
+
+    `rootfs` 构建在 `bootfs` 之上，包含了基本的 `Linux` 中的文件和目录结构。简单地来讲， `rootfs` 就是各种不同的操作系统的发行版
+
+<br />
+
+### 加载原理
+
+所有的 Docker 镜像都起始于一个基础的镜像层，当进行修改或者增加新的内容时，会在当前所在的镜像层上创建新的镜像层，如下图所示：
+
+<img src="https://s6.jpg.cm/2022/01/12/LsOfSi.png" style="zoom:50%" />
+
+比如，如果此时基于 `Ubuntu 18.04` 创建了一个新的镜像，那么此时 `Ubuntu 18.04` 所在的镜像层就是第一层；如果此时在该镜像中安装了 `JDK`，那么就会在第一层的基础上创建第二镜像层；如果此时又添加一个库，那么又会添加一个新的镜像层
+
+为了节约资源，同时由于镜像的每一层都是只读的，因此不同的镜像中可以复用其它镜像已经引入的镜像，如下图所示：
+
+<img src="https://s6.jpg.cm/2022/01/12/LEGYI2.jpg" style="zoom:80%" />
 
 
 
@@ -155,3 +263,5 @@ Docker 和虚拟机类似，二者都是为了提供一个可靠的运行环境�
 
 参考：
 <sup>[1]</sup> https://zh.wikipedia.org/wiki/Docker
+
+<sup>[2]</sup> https://docs.docker.com/get-started/overview/
