@@ -182,11 +182,110 @@ Docker 和虚拟机类似，二者都是为了提供一个可靠的运行环境�
 
 <br />
 
-## Dockerfile
+## 构建镜像
+
+### .`dockerignore`  文件
+
+类似于 `.gitignore`，当 Docker 客户端将当前项目的上下文发送到 Docker daemon 中生成 Docker Image 的这个过程中，如果发现了 `.dockerignore` 文件，那么将会按照 `.dockerignore` 文件中的相关部分去除掉，从而加快构建镜像的速度
+
+一个 `.dockerignore` 文件的示例如下所示：
+
+```dockerfile
+*/temp* # 在 root 的直接子目录中移除以 temp 开头的目录和文件
+```
+
+<br />
+
+### Dockerfile
 
 Dockerfile 是用于构建容器镜像的一系列指令，一个 Dockerfile 是一个包含了用户能够通过调用所有的命令汇编成一个镜像的文本文档。通过 `docker build` 命令可以根据 Dockerfile 文件来构建对应的镜像
 
+一个 Dockerfile 文件示例如下：
 
+```dockerfile
+# 基础镜像层，Dockerfile 要求一个合法的 Dockerfile 必须以 FROM 指令开始（ARG 可以在此之前出现）
+FROM alpine:3.5
+
+# RUN 指令将会执行对应的命令，这里执行的命令时安装 py2-pip
+# RUN 指令会在原有的基础层上创建一个新的镜像层
+RUN apk add --update py2-pip
+
+# COPY 指令复制当前目录下的文件到容器中文件系统中的指定目录
+COPY requirements.txt /usr/src/app/
+
+RUN pip install --no-cache-dir -r /usr/src/app/requirements.txt
+
+# 将需要的脚本文件复制到指令的位置
+COPY app.py /usr/src/app/
+COPY templates/index.html /usr/src/app/templates/
+
+# EXPOSE 指令暴露端口，使得外部能够访问
+# 默认情况下，端口采取的协议将是 TCP，当然也可以指定 UDP：EXPOSE 5000/udp
+EXPOSE 5000
+
+# CMD 命令用于执行一个命令，和 RUN 命令不同的地方在于 CMD 不会创建新的镜像层
+# CMD 命令在一个 Dockerfile 文件中只能出现一次，如果出现多次，那么前面的 CMD 命令产生的影响将会被清除
+# 这是由于 CMD 直接作用于容器所在的镜像层
+CMD ["python", "/usr/src/app/app.py"]
+```
+
+除了上文中使用到的一些指令之外，还有以下一些比较重要的指令：
+
+- `ARG`
+
+    用于定义在构建镜像时能够能够访问到的变量，和使用 `docker build` 命令时使用 `--build-arg <varname>=<value>` 的参数一致。
+
+    每个 `ARG` 指令都存在默认值，如果在整个构建过程中都没有设置值的话，将会使用默认值
+
+    具体结构如下所示：
+
+    ```dockerfile
+    ARG <name>[=<default value>]
+    ```
+
+- `ENV`
+
+    该指令用于定义相关的环境变量，和 `ARG` 指令的作用返回不同，该指令设置的变量将一直持续到容器中
+
+    具体结构如下所示：
+
+    ```dockerfile
+    ENV <key>=<value> ...
+    ```
+
+    后续对环境变量的任意赋值都将直接影响到当前的环境变量，从而影响到最终构建的镜像。为此，需要特别注意
+
+- `ENTRYPOINT`
+
+    和 `CMD` 指令类似，`ENTRYPOINT` 指令是专门为了运行程序而设计的（`CMD` 指令只能保留最后一次的效果），和 `CMD` 一样，在同一个 Dockerfile 中，只有最后一个 `ENTRYPOINT` 才会产生实际的效果
+
+    具体结构如下所示：
+
+    ```dockerfile
+    ENTRYPOINT ["executable", "param1", "param2"]
+    ```
+
+- `VOLUME`
+
+    `VOLUME` 指令用于创建一个挂载点，类似于 `mount` 命令，使得通过构建的镜像对应的容器能够访问到外部设备（宿主操作系统、其它的容器）的相关文件信息
+
+    使用示例如下所示：
+
+    ```dockerfile
+    # 创建 /data、/logs、/files 三个挂载点
+    VOLUME ["/data", "/logs", "/files"]
+    ```
+
+
+
+创建 Dockerfile 文件之后，使用 `docker build` 命令即可构建容器镜像，如下所示：
+
+```bash
+# -f 选项表示构建的 Dockerfile 的文件名，默认为 Dockerfile
+# -t 选项表示生成的 image 的名称，以 name:tag 的形式出现
+# . 表示 Dockerfile 文件所在的目录
+sudo docker build -f /root/Dockerfile -t app:latest .
+```
 
 
 
