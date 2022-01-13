@@ -276,7 +276,9 @@ CMD ["python", "/usr/src/app/app.py"]
     VOLUME ["/data", "/logs", "/files"]
     ```
 
+更多的指令可以参考：https://docs.docker.com/engine/reference/builder/
 
+<br />
 
 创建 Dockerfile 文件之后，使用 `docker build` 命令即可构建容器镜像，如下所示：
 
