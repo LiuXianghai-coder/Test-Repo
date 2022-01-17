@@ -125,3 +125,68 @@ Docker Swarm 的流量分为两大类：控制管理流量和应用数据流量
     <img src="https://s6.jpg.cm/2022/01/17/LFTT32.png" style="zoom:60%" />
 
 - 应用数据流量（Application Data Plane Traffic）
+
+
+
+<br />
+
+## 实际使用
+
+首先，我在我的计算机上安装了两台虚拟机，二者的操作系统都是 `CentOS 8`，现在将它们作为 Worker 节点，两者的 IP 地址（子网地址）分别为：192.168.0.105、192.168.0.107，宿主机的 IP 地址为 192.168.0.106，现在将宿主机作为 Manager 节点
+
+<br />
+
+### 配置 Swarm
+
+首先，在宿主机上初始化 Docker Swarm，构建一个只有一个 Mannager 节点的集群
+
+```bash
+sudo docker swarm init --advertise-addr 192.168.0.106
+```
+
+执行完成之后，可能会得到类似下图的输出：
+
+![2022-01-17 20-21-57 的屏幕截图.png](https://s2.loli.net/2022/01/17/pzQaFiX9uTPq25V.png)
+
+其中，图中的输出 `docker swarm join --token` 需要在别的 Worker 节点的机器上执行，现在分别在两台 Worker 节点的机器上执行相应的命令
+
+对于 192.168.0.105、192.168.0.107，都执行添加到 Swarm 的命令：
+
+```bash
+# 具体命令可能不同，请使用 docker swarm init 的实际输出
+sudo docker swarm join --token SWMTKN-1-4wihvahpfwg5kp7i19fgadhq90434hnzeu10peey3fudn6rfvc-b94kh7q2vyvopg56jzwr9clhh 192.168.0.106:2377
+```
+
+执行完成之后，会发现此时已经有两个 Worker 节点被添加到 Swarm 中了：
+
+![2022-01-17 20-37-29 的屏幕截图.png](https://s2.loli.net/2022/01/17/a5EPQqv7cnWAfLF.png)
+
+<br />
+
+### 创建 Service
+
+以创建 Nginx 为例，创建一个具有两个副本任务的 Service，如下所示：
+
+```bash
+# 在宿主机器（Manager 节点）上创建 Service，由 Manager 分发到 Worker 节点
+# 这里有个坑，如果宿主机上没有拉取指定的镜像，可能会导致其它主机上拉取到的镜像的版本是不一样的，因此创建 Service 时一定要指定拉取的镜像的标签
+sudo docker service create --replicas 2 --name nginx --publish 8080:80 nginx:latest
+
+# 在这里还有个坑，当宿主机器中存在代理服务器时，可能会被 Docker Hub 视为恶意的请求而拉取不到镜像，因此需要将主机中的代理去除：unset http_proxy
+```
+
+正常运行的结果类似下图所示：
+
+![2022-01-17 21-40-49 的屏幕截图.png](https://s2.loli.net/2022/01/17/als2uiE7UAxyRtB.png)
+
+由于 Docker Swarm 中负载均衡的存在，此时对任意节点的访问都将被负载到有效的容器主机上，如下图所示：
+
+<img src="https://s2.loli.net/2022/01/17/Q7WgwrAPDZECbNO.png" alt="image.png" style="zoom:67%;" />
+
+<br />
+
+参考：
+
+<sup>[1]</sup> https://www.cnblogs.com/wtzbk/p/15604370.html
+
+<sup>[1]</sup> https://docs.docker.com/
