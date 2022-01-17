@@ -316,7 +316,7 @@ Docker 的架构图如下所示：
 
 Docker 采用的是 “客户端—服务端” 的架构模式，单独的 `docker` 命令只是作为一个客户端工具来使用，实际有关容器以及镜像的操作都是由 Docker 守护进程来完成的。
 
-当本地的 Docker 客户端执行 `docker run` 命令时，首先会将请求发送到 Docker daemon，由 Docker daemon 来完成具体的操作；Docker daemon 首先检查本地是否存在对应的镜像，如果不存在对应的镜像，则需要首先到 Registry 中拉取对应的镜像；最后按照对应的镜像创建 Contianer 并启动
+当本地的 Docker 客户端执行 `docker run` 命令时，首先会将请求发送到 Docker daemon，由 Docker daemon 来完成具体的操作；Docker daemon 首先检查本地是否存在对应的镜像，如果不存在对应的镜像，则需要首先到 Registry 中拉取对应的镜像；最后按照对应的镜像创建 Container 并启动
 
 <br />
 
