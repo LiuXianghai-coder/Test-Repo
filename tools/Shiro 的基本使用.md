@@ -421,9 +421,209 @@ RBAC： Role-Based Access Controller，现在应该转换为 Resource-Based Acce
 
 ## 整合到 Spring 
 
+首先，添加对应的依赖项到本地 Spring 项目，这里以 Maven 项目为例：
 
+```xml
+<dependency>
+    <groupId>org.apache.shiro</groupId>
+    <artifactId>shiro-spring</artifactId>
+    <version>1.8.0</version> <!-- 具体对应相关的版本-->
+</dependency>
+```
 
+本部分中的所有配置都是通过配置类的方式来配置的，基于 SpringBoot 2.6.2，Shiro 中也存在对应的 `start` 依赖项：
 
+```xml
+<dependency>
+    <groupId>org.apache.shiro</groupId>
+    <artifactId>shiro-spring-boot-starter</artifactId>
+    <version>1.8.0</version> <!-- 具体对应相关的版本-->
+</dependency>
+```
+
+<br />
+
+### 配置 Shiro
+
+首先，在 SpringBoot 的主应用程序的目录创建一个 `config` 目录，用于创建配置类
+
+在新建的 `config` 目录下创建一个 `ShiroConfig` 的配置类，用于加载 Shiro 需要的配置，具体内容如下：
+
+```java
+import org.apache.shiro.spring.config.ShiroAnnotationProcessorConfiguration;
+import org.apache.shiro.spring.config.ShiroBeanConfiguration;
+import org.apache.shiro.spring.config.ShiroConfiguration;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+
+@Configuration
+@Import({ // 通过导入需要的相关的 Class，可以将 Shiro 中必须的 Bean 加载到 Spring 容器中
+    ShiroBeanConfiguration.class, // 配置 Shiro 生命周期和事件
+    ShiroConfiguration.class, // 配置 Shiro Beans，如：SecurityManager、SessionManager 等等
+    ShiroAnnotationProcessorConfiguration.class // 开启注解的配置方式
+})
+public class ShiroConfig {
+    // 注意，在加入这些配置 Bean 之前，请确保整个 Spring 容器中至少存在一个 Realm
+}
+```
+
+<br />
+
+### 在 Web 应用中进行配置
+
+新建一个 `ShiroWebConfig` 的配置类，用于配置和 Web 应用相关的特有配置：
+
+```java
+package org.xhliu.demo.config;
+
+import org.apache.shiro.spring.config.ShiroAnnotationProcessorConfiguration;
+import org.apache.shiro.spring.config.ShiroBeanConfiguration;
+import org.apache.shiro.spring.web.config.ShiroRequestMappingConfig;
+import org.apache.shiro.spring.web.config.ShiroWebConfiguration;
+import org.apache.shiro.spring.web.config.ShiroWebFilterConfiguration;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+
+@Configuration
+@Import({
+        ShiroBeanConfiguration.class, // 配置 Shiro 的生命周期和事件
+        ShiroAnnotationProcessorConfiguration.class, // 开启 Shiro 的注解处理
+        ShiroWebConfiguration.class, // 这个配置类会加载必要的配置 Bean，如默认的 SecurityManager 和 SessionManager 等
+        ShiroWebFilterConfiguration.class, //  配置 Web 应用的过滤器
+        ShiroRequestMappingConfig.class // 使用 Shiro 对于 Spring 框架的 `UrlPathHelper` 的实现，确保 Shiro 的处理和 Spring 对于 Web 的处理相同
+})
+public class ShiroWebConfig {
+    // 同样的，在整个系统中至少需要存在一个 Realm 用于实际的用户检测
+}
+```
+
+在导入相关的配置类之后，需要定义一个 `ShiroFilterChainDefinition` 来定义访问路径的处理：
+
+```java
+@Bean
+public ShiroFilterChainDefinition shiroFilterChainDefinition() {
+    DefaultShiroFilterChainDefinition chainDefinition = new DefaultShiroFilterChainDefinition();
+
+    /* 
+    	注意：对于每个请求，都会按照当前的配置顺序进行检查，因此一定要将进行检查的请求路径放在前面一些配置，
+    	否则，某些配置，如 "/**" 设置为匿名访问并放在第一位，将会使得整个过滤链功能失效
+   */
+    
+    // 进入到 /admin 路径的请求必须具有 'admin' 的角色
+    chainDefinition.addPathDefinition("/admin/**", "authc, roles[admin]");
+
+    // 进入到 /docs 路径的用户必须具有读取权限
+    chainDefinition.addPathDefinition("/docs/**", "authc, perms[document:read]");
+
+    // 所有 /user 的请求都必须经过认证
+    chainDefinition.addPathDefinition("/user", "authc");
+
+    //  "/view" 的请求也必须是经过认证的
+    chainDefinition.addPathDefinition("/view", "authc");
+
+    // 对于 /tmp 的请求可以是匿名的（即不需要经过认证）
+    chainDefinition.addPathDefinition("/**", "anon");
+
+    return chainDefinition;
+}
+```
+
+其中，每个方法调用的第二个参数都是有 Shiro 内置的定义信息，具体细节如下所示：
+
+| **Filter Name** | **Class**                                                    |
+| :-------------- | :----------------------------------------------------------- |
+| anon            | `org.apache.shiro.web.filter.authc.AnonymousFilter`          |
+| authc           | `org.apache.shiro.web.filter.authc.FormAuthenticationFilter` |
+| authcBasic      | `org.apache.shiro.web.filter.authc.BasicHttpAuthenticationFilter` |
+| perms           | `org.apache.shiro.web.filter.authz.PermissionsAuthorizationFilter` |
+| port            | `org.apache.shiro.web.filter.authz.PortFilter`               |
+| rest            | `org.apache.shiro.web.filter.authz.HttpMethodPermissionFilter` |
+| roles           | `org.apache.shiro.web.filter.authz.RolesAuthorizationFilter` |
+| ssl             | `org.apache.shiro.web.filter.authz.SslFilter`                |
+| user            | `org.apache.shiro.web.filter.authc.UserFilter`               |
+
+以上的配置方式不是特别直观，因此 Shiro 也提供了注解的方式来进行显式的配置，具体如下所示：
+
+```java
+import org.apache.shiro.authz.annotation.RequiresRoles;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RequestMapping;
+
+@Controller
+public class AdminController {
+    @RequiresRoles("admin") // 对于当前的请求，需要具有 admin 的角色
+    @RequestMapping(path = "/admin/config")
+    public String admin() {
+        return "view";
+    }
+}
+```
+
+<br />
+
+### 全局配置
+
+现在将相关的配置信息放入到一个 Bean 中，可以简化许多的内容，
+
+对应 `org.apache.shiro.spring.web.ShiroFilterFactoryBean` 类型的 Bean，具体如下所示：
+
+```java
+@Bean
+public ShiroFilterFactoryBean shirFilter(SecurityManager securityManager) {
+    ShiroFilterFactoryBean shiroFilterFactoryBean = new ShiroFilterFactoryBean();
+    // 配置 SecurityManager，这里的 SecurityManager 是通过注入来实现的，因为我们已经将 ShiroConfiguration 加载到 Spring 容器中了，ShiroConfiguration 中定义了 SecurityManager  Bean
+    shiroFilterFactoryBean.setSecurityManager(securityManager);
+    
+    //  过滤器，对应上文中的 ShiroFilterChainDefinition，但是在这里是通过 Map 的形式来定义的
+    Map<String, String> filterChainDefinitionMap = new LinkedHashMap<String, String>();
+    
+    // 配置不会被拦截的链接 顺序判断
+    filterChainDefinitionMap.put("/static/**", "anon");
+    
+    // 配置退出 过滤器,其中的具体的退出代码Shiro已经替我们实现了
+    filterChainDefinitionMap.put("/logout", "logout");
+    
+    //   过滤链定义，从上向下顺序执行，一般将/** 放在最为下边 
+    filterChainDefinitionMap.put("/**", "authc");
+    
+    // 设置登录的请求路径，默认为 "/login.jsp"
+    shiroFilterFactoryBean.setLoginUrl("/login");
+    
+    // 登录成功后要跳转的路径
+    shiroFilterFactoryBean.setSuccessUrl("/index");
+
+    // 未授权界面的重定向访问路径
+    shiroFilterFactoryBean.setUnauthorizedUrl("/403");
+    shiroFilterFactoryBean.setFilterChainDefinitionMap(filterChainDefinitionMap);
+    
+    return shiroFilterFactoryBean;
+}
+```
+
+更多的配置细节如下表所示：
+
+| `shiro.sessionManager.deleteInvalidSessions`        | `true`       | 从会话存储中删除无效会话                                   |
+| --------------------------------------------------- | ------------ | ---------------------------------------------------------- |
+| `shiro.sessionManager.sessionIdCookieEnabled`       | `true`       | 启用会话 ID 到 cookie，用于会话跟踪                        |
+| `shiro.sessionManager.sessionIdUrlRewritingEnabled` | `true`       | 启用会话 URL 重写支持                                      |
+| `shiro.userNativeSessionManager`                    | `false`      | 如果启用 Shiro 将管理 HTTP 会话而不是容器                  |
+| `shiro.sessionManager.cookie.name`                  | `JSESSIONID` | 会话 cookie 名称                                           |
+| `shiro.sessionManager.cookie.maxAge`                | `-1`         | 会话 cookie 最大存活时间                                   |
+| `shiro.sessionManager.cookie.domain`                | null         | 会话 cookie 域                                             |
+| `shiro.sessionManager.cookie.path`                  | null         | 会话 cookie 路径                                           |
+| `shiro.sessionManager.cookie.secure`                | `false`      | 会话 cookie 安全标志                                       |
+| `shiro.rememberMeManager.cookie.name`               | `rememberMe` | “记住我” 的 cookie 名称                                    |
+| `shiro.rememberMeManager.cookie.maxAge`             | one year     | ”记住我“ 的 cookie 最大存活时间                            |
+| `shiro.rememberMeManager.cookie.domain`             | null         | “记住我” 的 cookie 域                                      |
+| `shiro.rememberMeManager.cookie.path`               | null         | ”记住我“ 的 cookie 路径                                    |
+| `shiro.rememberMeManager.cookie.secure`             | `false`      | ”记住我“ 的 cookie 安全标记                                |
+| `shiro.loginUrl`                                    | `/login.jsp` | 将未经身份验证的用户重定向到登录页面时使用的登录 URL       |
+| `shiro.successUrl`                                  | `/`          | 用户登录后的默认登录页面（如果在当前会话中找不到替代方案） |
+| `shiro.unauthorizedUrl`                             | null         | 如果用户未经授权，则将其重定向到的页面（403 页面）         |
+
+<br />
+
+具体的项目请参考：https://github.com/LiuXianghai-coder/Spring-Study/tree/master/spring-shiro
 
 <br />
 
