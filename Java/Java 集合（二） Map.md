@@ -641,15 +641,25 @@ transient int size;
 1. `HashMap` 为了符合 `Map` 接口要求的时间复杂度，因此实际上一个 `table` 中有接近一半的空间是没有被使用的，为了节约空间因此需要自定义序列化的操作
 2. 由于 JVM 只是一个规范，因此在不同的 JVM 实现中，对同一个对象计算 `hashCode` 得到的值可能不一样，因此保留这些元素的状态在序列化时是没有意义的 
 
-
-
 <br />
 
 ## `TreeMap`
 
+`java.util.TreeMap`  也是在实际使用过程中使用的比较多的 `Map` 具体实现类，`TreeMap` 不仅实现了 `java.util.Map` 接口，同时还实现了 `java.util.NavigableMap` 接口从而使得在迭代元素时得到的元素节点是有序的，同时具备搜索特定目标元素节点的相关方法，如 `lowerEntry`、`floorEntry` 等方法
 
+和 `HashMap` 的实现不同，`HashMap` 很大程度上依赖具体元素节点对象的 `hashCode` 和 `equals` 方法才能正常工作。 `TreeMap` 则要求键值对元素节点的 `Key` 必须实现 `java.lang.Comparable` 接口就能够正常工作。
 
+由于 `TreeMap` 是基于红黑树的数据结构来存储相关的键值对元素，因此对于元素节点的插入、删除以及查找等操作的时间复杂度都为 $O(log_2N)$ ，性能略差于 `HashMap`
 
+`TreeMap` 的底层基于红黑树，因此在本文不会做详细的介绍，如果想要了解红黑树，《算法（第四版）》会是一个相当好的选择。我也在此推荐一下我写的关于红黑树的博客：https://www.cnblogs.com/FatalFlower/p/15334566.html
+
+<br />
+
+## 两者的比较
+
+一般情况下，使用 `HashMap` 的情况会比较多，因为 `HashMap` 能够保证操作的时间复杂度都控制在 $O(1)$ ，但是这里有一个前提条件：对象的 `equals` 方法和 `hashCode` 方法必须是有效的，如果你重写了一个值对象的 `equals` 方法，那么必须重写该对象的 `hashCode` 方法，同时保证两者是对应的，这样 `HashMap` 才能正常工作，这有时可能是放弃使用 `HashMap` 的一个原因
+
+`TreeMap` 基于红黑树的数据结构，因此要求节点对象必须实现 `java.lang.Comprable` 接口，或者在构造 `TreeMap` 时传入对应的 `Comparator` 对象以实现节点之间的比较。尽管 `TreeMap` 的每项操作的时间复杂度都是 $O(long_2N)$，但是如果你希望拥有一个有顺序的 `Map`，那么 `TreeMap` 绝对是一个不二之选
 
 <br />
 
