@@ -664,12 +664,122 @@ private final void treeifyBin(Node<K,V>[] tab, int index) {
 }
 ```
 
-
-
 #### 扩容数组
 
+上文的 “链表 —>  红黑树” 的转换过程已经分析，如果当前数组的长度小于某个阈值时，会优先考虑进行扩容而不是直接进行树化的操作。具体扩容的方法对应于 `tryPresize(int)`，对应的源代码如下所示：
+
+```java
+private final void tryPresize(int size) { // 注意，调用此方法时扩容后的 size 就已经被计算好了
+    /*
+    	c 为 size 的 1.5 倍，然后向上取最近的 2 的 n 次幂，
+    */
+    int c = (size >= (MAXIMUM_CAPACITY >>> 1)) ? MAXIMUM_CAPACITY :
+    tableSizeFor(size + (size >>> 1) + 1);
+    
+    int sc;
+    while ((sc = sizeCtl) >= 0) {
+        Node<K,V>[] tab = table; int n;
+        
+        if (tab == null || (n = tab.length) == 0) {
+            n = (sc > c) ? sc : c;
+            if (U.compareAndSwapInt(this, SIZECTL, sc, -1)) {
+                try {
+                    if (table == tab) {
+                        @SuppressWarnings("unchecked")
+                        Node<K,V>[] nt = (Node<K,V>[])new Node<?,?>[n];
+                        table = nt;
+                        sc = n - (n >>> 2); // 0.75 * n
+                    }
+                } finally {
+                    sizeCtl = sc;
+                }
+            }
+        }
+        else if (c <= sc || n >= MAXIMUM_CAPACITY)
+            break;
+        else if (tab == table) {
+            int rs = resizeStamp(n);
+            if (sc < 0) {
+                Node<K,V>[] nt;
+                if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 ||
+                    sc == rs + MAX_RESIZERS || (nt = nextTable) == null ||
+                    transferIndex <= 0)
+                    break;
+                
+                /*
+                    只用 CAS 的方式将 sizeCtl + 1，然后执行  transfer 方法，此时 nextTab 不为 null
+                */
+                if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1))
+                    transfer(tab, nt);
+            }
+            /*
+            	将 sizeCtl 设置为 rs << RESIZE_STAMP_SHIFT) + 2，这个值是一个负数
+            */
+            else if (U.compareAndSwapInt(this, SIZECTL, sc,
+                                         (rs << RESIZE_STAMP_SHIFT) + 2))
+                transfer(tab, null);
+        }
+    }
+}
+```
+
+这个方法的核心部分在于 `sizeCtl` 值的操作，首先将其设置为一个负数，然后再执行 `transfer(tab, null)`，在下一个循环中将 `sizeCtl` + 1，并执行  `transfer(tab, nt)`。
+
+#### 数据迁移
+
+对应 `transfer` 方法，这个方法的作用是将原来数组中的元素迁移到新创建的数组中。
+
+该方法支持多个线程并发地进行调用，当调用该方法时，会保证第一个发起数据迁移的线程 `nextTab` 参数为 `null`，之后再调用此方法时，`nextTab` 不为 `null`
+
+和 JDK 1.7 的实现类似，JDK 1.7 的实现通过 `Segment` 数组来固定并发量；在 JDK 1.8 的实现中，通过 `stride`（步长）使得每个线程每次负责迁移其中的一部分。`transferIndex` 的作用就是用与确定每个线程负责的任务区间，如：第一个发起数据迁移的线程会将 `transferIndex` 指向数组的最后的位置，然后从后往前的 `stride` 个索引位置的迁移任务属于当前线程，然后将 `transferIndex` 指向新的位置。
+
 ### 获取元素
+
+获取元素是一个比较简单的操作，按照如下的步骤进行查找：
+
+- 首先计算要查找的 `Key` 的 `hash` 值
+- 根据 `hash` 值找到对应的数组的索引位置（$ (n - 1) \& hash $）
+- 根据当前所在位置的元素节点的类型进行对应的查找：
+    - 如果当前位置的元素为 `null`，则返回 `null`
+    - 如果当前位置对应的元素正好是我们需要的，那么直接返回即可
+    - 如果该位置节点的 `hash` 值小于 $0$，说明当前的数组正在扩容、或者是红黑树的节点
+    - 如果以上条件都不满足，那么当前位置的元素的节点类型为链表，直接遍历进行查找即可
+
+对应的获取元素的方法为 `get(Object)`，具体的源代码如下所示：
+
+```java
+public V get(Object key) {
+    Node<K,V>[] tab; Node<K,V> e, p; int n, eh; K ek;
+    int h = spread(key.hashCode()); // 计算hash
+    if ((tab = table) != null && (n = tab.length) > 0 &&
+        (e = tabAt(tab, (n - 1) & h)) != null) {
+        // 如果头节点是我们要查找的节点，那么直接返回即可
+        if ((eh = e.hash) == h) {
+            if ((ek = e.key) == key || (ek != null && key.equals(ek)))
+                return e.val;
+        }
+        /*
+        	如果头节点的 hash < 0，说明数组正在扩容、或者该节点元素为红黑树节点
+        */
+        else if (eh < 0)
+            return (p = e.find(h, key)) != null ? p.val : null;
+        /*
+        	否则的话，遍历链表进行查找
+        */
+        while ((e = e.next) != null) {
+            if (e.hash == h &&
+                ((ek = e.key) == key || (ek != null && key.equals(ek))))
+                return e.val;
+        }
+    }
+    return null;
+}
+```
+
+
 
 参考：
 
 <sup>[1]</sup> https://mp.weixin.qq.com/s/EdSEZpKrtPQooaEPKWV5ig
+
+<sup>[2]</sup> https://javadoop.com/post/hashmap#toc_13
