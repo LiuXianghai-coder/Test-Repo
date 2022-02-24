@@ -397,3 +397,9 @@ Eureka 主要存在以下的一些核心功能：
 参考：
 
 <sup>[1]</sup> https://mp.weixin.qq.com/s/Xfq5YCaSSc7WgOH6Yqz4zQ
+
+
+
+<br />
+
+本文对应的项目地址：https://github.com/LiuXianghai-coder/Spring-Study/tree/master/spring-eureka
