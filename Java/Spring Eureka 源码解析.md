@@ -375,14 +375,14 @@ public void contextInitialized(ServletContext context) {
         /*
             这里的具体实现只是单纯地打印一行日志
         */
-		initEurekaEnvironment();
+        initEurekaEnvironment();
         
         /*
             这里初始化 Eureka Server 的上下文
         */
-		initEurekaServerContext();
+        initEurekaServerContext();
 
-		context.setAttribute(EurekaServerContext.class.getName(), this.serverContext);
+        context.setAttribute(EurekaServerContext.class.getName(), this.serverContext);
 	}
 	catch (Throwable e) {
 		log.error("Cannot bootstrap eureka server :", e);
@@ -399,9 +399,9 @@ protected void initEurekaServerContext() throws Exception {
 	JsonXStream.getInstance().registerConverter(new V1AwareInstanceInfoConverter(), XStream.PRIORITY_VERY_HIGH);
 	XmlXStream.getInstance().registerConverter(new V1AwareInstanceInfoConverter(), XStream.PRIORITY_VERY_HIGH);
 
-    /*
-        针对 AWS 的特殊处理，一般情况下可能用不到，略过
-    */
+        /*
+            针对 AWS 的特殊处理，一般情况下可能用不到，略过
+        */
 	if (isAws(this.applicationInfoManager.getInfo())) {
 	    this.awsBinder = new AwsBinderDelegate(this.eurekaServerConfig, this.eurekaClientConfig, this.registry,this.applicationInfoManager);
 		this.awsBinder.start();
@@ -412,14 +412,14 @@ protected void initEurekaServerContext() throws Exception {
 	log.info("Initialized server context");
 
 	// Copy registry from neighboring eureka node
-    /*
-        邻接点的数据同步
-    */
+        /*
+            邻接点的数据同步
+        */
 	int registryCount = this.registry.syncUp();
     
-    /*
-        服务剔除
-    */
+        /*
+            服务剔除
+        */
 	this.registry.openForTraffic(this.applicationInfoManager, registryCount);
 
 	// Register all monitoring statistics.
@@ -575,6 +575,4 @@ class EvictionTask extends TimerTask {
 
 参考：
 
-<sup>[1]</sup>
-
-https://mp.weixin.qq.com/s/Xfq5YCaSSc7WgOH6Yqz4zQhttps://mp.weixin.qq.com/s/Xfq5YCaSSc7WgOH6Yqz4zQ
+<sup>[1]</sup> https://mp.weixin.qq.com/s/Xfq5YCaSSc7WgOH6Yqz4zQhttps://mp.weixin.qq.com/s/Xfq5YCaSSc7WgOH6Yqz4zQ
