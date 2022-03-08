@@ -71,7 +71,145 @@ Sprin Cloud GateWay 是 Spring 官方团队研发的 API 网关技术，它的�
 
 Spring Cloud GateWay 是基于 Reactor 开发的一套网关，Reactor 通过完全非阻塞的方式保证了性能，并且由于 Reactor 线程模型，对于线程的创建与销毁发生的频率都是相当低的
 
+## 基本使用
 
+由于在最新的版本中 GateWay 已经采用 WebFlux 作为底层服务器处理，因此传统的 Spring Boot Web 是无法被使用的。
+
+要使用 Spring Cloud GateWay，只需要在项目中加入如下的依赖项：
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-gateway</artifactId>
+    <version>3.1.1</version>
+</dependency>
+```
+
+添加该依赖项会自动引入 WebFlux 的依赖项，因此简化了相关的操作，在 WebFlux 中，传统的 Web 相关的注解依旧是可以使用的，以下面的例子为例，创建一个简单的控制器 Bean：
+
+```java
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+public class SimpleController {
+    private static final Logger log = LoggerFactory.getLogger(SimpleController.class);
+
+    @GetMapping(path = "/say")
+    public String say() {
+        log.info("[spring-cloud-gateway-service] say Hello");
+        return "[spring-cloud-gateway-service] say Hello\n";
+    }
+}
+```
+
+接下来在 `application.yml`（或者 `aplication.properties`）配置文件中配置网管，具体的示例如下所示：
+
+```yaml
+server:
+  port: 8000 # spring Web 的相关配置在 WebFlux 中依旧可以使用
+
+spring:
+  cloud:
+  # 在这里配置具体的网关
+    gateway:
+      routes:
+        - id: path_route # id 表示路由 id，注意在系统中保证这个 id 是唯一的
+          uri: http://127.0.0.1:8000 # 该  GateWay 作用的 URL
+          filters: # 过滤器，为通过 Predicate 的请求进行进一步的处理，具体可以查看 GatewayFilter
+            - name: StripPrefix # 这里是 GateWay 中一个内置 Filter ，每个请求跳过第一个请求前缀
+              args:
+                parts: 1
+          predicates: # 路由条件，根据匹配的结果决定是否执行该请求路由，具体可以查看 RoutePredicateFactory
+            - name: Path # 这也是 GateWay 的一个内置 Predicate，表示用于路径匹配
+              args:
+                xhliu: /gateway/**
+```
+
+实际上，`Filter` 和 `Predicate` 在 GateWay 的自动配置类中已经定义了大量的具体实现类对应的 Bean，在装载到对应的容器中时，会去掉冗余的后缀，保留前缀作为对应的键以便于查找，具体可以查看对应的源代码
+
+此时对 http://127.0.0.1:8000/gateway/say 进行访问，可以发现请求会转发到 http://127.0.0.1:8000/say，如下图所示：
+
+![2022-03-08 20-19-37 的屏幕截图.png](https://s2.loli.net/2022/03/08/BL4lPAdsbZWIGO7.png)
+
+## 原理分析
+
+Spring Cloud GateWay 请求的处理过程如下图所示：
+
+<img src="https://s2.loli.net/2022/03/08/dkU25AQy1EzfYiP.png" alt="route.drawio.png" style="zoom:80%;" />
+
+组件说明如下：
+
+- Route（路由）：包含 `Predicate` 和 `Filter`，是网关的基本组件，由自定义 Id、目标 URL、Predicate 集合和 Filter 集合组成
+- Predicate：这是 Java 8 中引入的函数式编程的一个基本接口，提供了类似断言的功能，具体来说，就是输入一个参数，`Predicate` 会进行判断是否是满足条件的。如果满足条件即 Predicate 返回 true，则请求会被 Route 进行转发
+- Filter（过滤器）：为请求提供前置和后置的过滤，这里的 ”过滤“ 指的是给通过 `Predicate` 的请求进行一些特有的操作，可以类比 Spring AOP 所做的增强功能
+
+### RoutePredicateFactory
+
+在 Spring Cloud GateWay 中，提供了几种 `RoutePredicateFactory` 的初始 Bean，这些 RoutePredicateFactory 按照类型进行划分可以分为以下几类：
+
+- 指定时间规则匹配路由
+    - `BeforeRoutePredicateFactory`：只有在指定的时间之前的请求才能通过，否则请求转发失败
+    - `AfterRoutePredicateFactory`：只有在指定时间之后的请求才能通过，否则请求转发失败
+    - `BetweenRoutePredicateFactory`：只有在指定的时间段的请求才能被转发，否则请求转发失败
+- 匹配请求 Cookie 的路由
+    - `CookieRoutePredicateFactory`：判断请求携带的 Cookie 是否匹配配置的规则，不满足提哦见则服务转发失败
+- 请求头信息匹配规则路由
+    - `HeaderRoutePredicateFactory`：只有在请求的请求头包含的信息匹配对应的规则，才进行请求的转发
+    - `CloudFoundryRouteServiceRoutePredicateFactory`：// TODO
+- 主机信息匹配规则路由
+    - `HostRoutePredicateFactory`：每个 Http 请求都会携带一个 Host 字段，这个字段表示请求的服务器的地址，该配置规则通过对 Host 信息进行规则匹配进行路由
+- 请求方式的路由规则
+    - `MethodRoutePredicateFactory`：只有满足定义的请求方法（`PUT`、`GET`、`POST`等）规则才能进行正常的请求转发
+- 请求路进路由规则
+    - `PathRoutePredicateFactory`：根据请求的请求路径进行对应的路由规则判断，再进行请求的转发
+
+​	以上是一些常用的规则配置，其它的一些配置目前尚未接触
+
+​	// TODO
+
+### GatewayFilterFactory
+
+`GatewayFilterFactory` 是路由的过滤器（请求增强），`Filter` 分为两种：`Pre` 过滤器和 `Post` 过滤器，`Pre` 过滤器在请求转发之前执行，`Post` 过滤器在请求转发之后，处理结果返回客户端之前执行
+
+GateWay Filter 的实现方式也分为两种：`GateWayFilter`、`GlobalFilter`，其中 `GateWayFilter` 只会应用到单个路由或者一个分组的路由上，而 `GlobalFilter` 则会应用到所有的路由上
+
+- `GateWayFilter`
+
+    - `AddRequestParameterGatewayFilterFactory`：对所有请求添加一个查询参数，前提是该请求必须通过 `Predicate`
+
+    - `AddResponseHeaderGatewayFilterFactory`：在处理结果返回给客户端之前，向 Header 中添加相应的数据
+
+    - `RequestRateLimiterGatewayFilterFactory`：配置请求限流，该过滤器会对访问到当前网关的所有请求进行限流，当没限流时，默认返回响应码 429。`RequestRateLimiterGatewayFilterFactory` 默认提供了 `RedisRateLimiter` 的限流实现，它采用令牌桶算法来实现限流功能
+
+        如果希望使用 `RequestRateLimiterGatewayFilterFactory` 的默认限流，那么需要添加如下的依赖：
+
+        ```xml
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
+        </dependency>
+        ```
+
+        这是因为当前的运行环境为 WebFlux，因此传统的 spring-boot-starter-data-redis 可能无法适应到当前的运行环境
+
+    - `RetryGatewayFilterFactory`：准许请求重试
+
+- `GlobalFilter`
+
+    `GlobalFilter` 的执行顺序：
+
+    1. 当 GateWay 接收到请求时，`FilteringWebHandler` 处理器会将所有的 `GlobalFilter` 实例以及所有路由上配置的 GateWayFilter实例添加到一条过滤链中
+    2. 所有的过滤器将会按照 `@Order` 注解定义的顺序进行排序处理
+
+    Spring Cloud GateWay 内置的集中 `GlobalFilter`：
+
+    - `GatewayMetricsFilter`：网关指标过滤器，提供监视指标，可以结合 Spring Actuactor 对 Spring Boot 应用程序进行监控
+    - 
+
+<br />
 
 参考
 
