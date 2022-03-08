@@ -48,7 +48,8 @@ public T newInstance(SqlSession sqlSession) {
 public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
     try {
         /*
-        	如果当前执行的方法对象对应的方法是 Object 的方法，如 hash()、toString()、equals() 等，那么直接执行 Object 的方法
+        	如果当前执行的方法对象对应的方法是 Object 的方法，如 hash()、toString()、equals() 等，
+        	那么直接执行 Object 的方法
         */
         if (Object.class.equals(method.getDeclaringClass())) {
             return method.invoke(this, args);
@@ -86,14 +87,15 @@ public Object invoke(Object proxy, Method method, Object[] args) throws Throwabl
 
 ```java
 private MapperMethod cachedMapperMethod(Method method) {
-    /**
-    * 在缓存中查找MapperMethod，若没有，则创建MapperMethod对象，并添加到methodCache集合中缓存
+    /*
+    	在缓存中查找MapperMethod，若没有，则创建MapperMethod对象，并添加到methodCache集合中缓存
     */
     MapperMethod mapperMethod = methodCache.get(method);
     // 构建mapperMethod对象，并维护到缓存methodCache中
     if (mapperMethod == null) {
         mapperMethod = new MapperMethod(mapperInterface, method, sqlSession.getConfiguration());
-        methodCache.put(method, mapperMethod); // 这里的 methodCache 使用 ConcurrentHashMap 作为缓存的集合
+        // 这里的 methodCache 使用 ConcurrentHashMap 作为缓存的集合
+        methodCache.put(method, mapperMethod);
     }
     return mapperMethod;
 }
@@ -121,10 +123,14 @@ public MapperMethod(Class<?> mapperInterface, Method method, Configuration confi
 ```java
 // SqlCommand 是 MapperMethod 的一个静态类
 public static class SqlCommand {
-    /** MappedStatement的唯一标识 */
+    /*
+    	MappedStatement的唯一标识 
+    */
     private final String name;
 
-    /** sql的命令类型 UNKNOWN, INSERT, UPDATE, DELETE, SELECT, FLUSH; */
+    /*
+    	sql的命令类型 UNKNOWN, INSERT, UPDATE, DELETE, SELECT, FLUSH; 
+     */
     private final SqlCommandType type;
     
     // 省略构造函数和其他的源代码
@@ -145,7 +151,8 @@ private MappedStatement resolveMappedStatement(Class<?> mapperInterface, String 
     if (configuration.hasStatement(statementId)) {
         // 如果能够查找到，那么返回这个 MapperStatement 对象
         return configuration.getMappedStatement(statementId);
-    } else if (mapperInterface.equals(declaringClass)) { // 传入的接口类和声明的类一样，那么就没有必要再去向父接口再去查找了
+    } else if (mapperInterface.equals(declaringClass)) { 
+        // 传入的接口类和声明的类一样，那么就没有必要再去向父接口再去查找了
         return null;
     }
     
@@ -235,7 +242,10 @@ public ParamNameResolver(Configuration config, Method method) {
     */
     final Annotation[][] paramAnnotations = method.getParameterAnnotations();
     
-    // 这个 Map 维护的是参数位置索引和参数名称之间的映射关系。通过这个 Map，在之后的实际传入参数处理中将会十分方便
+    /* 
+    	这个 Map 维护的是参数位置索引和参数名称之间的映射关系。通过这个 Map，
+    	在之后的实际传入参数处理中将会十分方便
+    */
     final SortedMap<Integer, String> map = new TreeMap<>();
     
     int paramCount = paramAnnotations.length;
@@ -351,7 +361,10 @@ public Object getNamedParams(Object[] args) {
 主要需要关注的地方是 `MapperStatement` 中对于 `BoundSql`实例对象的处理：
 
 ```java
-// BoundSql 是为了将 Mapper XML 中的参数进行转化，即原来为参数的地方要转换为 '?' 以及其对应位置的对应参数映射信息等
+/* 
+	BoundSql 是为了将 Mapper XML 中的参数进行转化，即原来为参数的地方要转换为 '?' 
+	以及其对应位置的对应参数映射信息等
+*/
 public BoundSql getBoundSql(Object parameterObject) {
     // 这里的 BoundSql 对象来自 RawSqlSource
     BoundSql boundSql = sqlSource.getBoundSql(parameterObject);
@@ -365,7 +378,7 @@ public BoundSql getBoundSql(Object parameterObject) {
     }
 
     /**
-    * 处理结果映射，对应 Mapper XML 映射文件的 resultMap 属性
+    	处理结果映射，对应 Mapper XML 映射文件的 resultMap 属性
     */
     for (ParameterMapping pm : boundSql.getParameterMappings()) {
         String rmId = pm.getResultMapId();
@@ -400,13 +413,12 @@ public BoundSql getBoundSql(Object parameterObject) {
   Cache cache = ms.getCache();
   // 如果开启了二级缓存，即在 Mapper XML 映射文件中添加了 <cache />，那么将能够检测到二级缓存的存在
   if (cache != null) {
-      /**
-      * 如果flushCacheRequired=true并且缓存中有数据，则先清空缓存
-      *
-      * <select id="save" parameterType="XXXXXEO" statementType="CALLABLE" flushCache="true" useCache="false">
-      *     ……
-      * </select>
-      * */
+      /*
+      	如果flushCacheRequired=true并且缓存中有数据，则先清空缓存
+      	<select id="save" parameterType="XXXXXEO" statementType="CALLABLE" flushCache="true" useCache="false">
+          	……
+              </select>
+      */
       flushCacheIfRequired(ms);
   
       if (ms.isUseCache() && resultHandler == null) {
@@ -423,9 +435,9 @@ public BoundSql getBoundSql(Object parameterObject) {
       }
   }
   ```
-
   
-
+  
+  
 - 对于一级缓存的处理
 
   一级缓存的处理将在 `BaseExecutor` 中进行处理，具体的源代码如下所示：
@@ -438,7 +450,10 @@ public BoundSql getBoundSql(Object parameterObject) {
           throw new ExecutorException("Executor was closed.");
       }
   
-      /** 如果配置了flushCacheRequired=true并且queryStack=0（没有正在执行的查询操作），则会执行清空缓存操作*/
+      /*
+      	如果配置了flushCacheRequired=true并且queryStack=0（没有正在执行的查询操作），
+      	则会执行清空缓存操作
+       */
       if (queryStack == 0 && ms.isFlushCacheRequired()) {
           clearLocalCache();
       }
@@ -448,7 +463,10 @@ public BoundSql getBoundSql(Object parameterObject) {
           /** 记录正在执行查询操作的任务数*/
           queryStack++;
   
-          /** localCache维护一级缓存，试图从一级缓存中获取结果数据，如果有数据，则返回结果；如果没有数据，再执行queryFromDatabase */
+          /* 
+          	localCache维护一级缓存，试图从一级缓存中获取结果数据，如果有数据，
+          	则返回结果；如果没有数据，再执行queryFromDatabase 
+           */
           list = resultHandler == null ? (List<E>) localCache.getObject(key) : null;
           // eg1: list = null
           if (list != null) {
@@ -470,7 +488,10 @@ public BoundSql getBoundSql(Object parameterObject) {
           deferredLoads.clear();
   
           // eg1: configuration.getLocalCacheScope()=SESSION
-          /** 如果设置了<setting name="localCacheScope" value="STATEMENT"/>，则会每次执行完清空缓存。即：使得一级缓存失效 */
+          /* 
+          	如果设置了<setting name="localCacheScope" value="STATEMENT"/>，
+          	则会每次执行完清空缓存。即：使得一级缓存失效 
+           */
           if (configuration.getLocalCacheScope() == LocalCacheScope.STATEMENT) {
               // issue #482
               clearLocalCache();
@@ -479,7 +500,7 @@ public BoundSql getBoundSql(Object parameterObject) {
       return list;
   }
   ```
-
+  
   
 
 ### 第五阶段
@@ -517,7 +538,7 @@ public BoundSql getBoundSql(Object parameterObject) {
   }
   ```
 
-  除了预处理 `SQL` 之外，在这个过程中还会设置 `SQL` 语句的最大执行时间和要获取的数据行的个数等信息（分页的操作就在这里处理）
+  在预处理完成 `SQL` 之后在， 会设置 `SQL` 语句的最大执行时间和要获取的数据行的个数等信息（分页的操作就在这里处理）
 
 
 
@@ -615,11 +636,11 @@ public BoundSql getBoundSql(Object parameterObject) {
            if (stmt.getMoreResults()) {
                rs = stmt.getResultSet();
            } else {
-               /**
-               * getUpdateCount()==-1,既不是结果集,又不是更新计数了.说明没的返回了。
-               * 如果getUpdateCount()>=0,则说明当前指针是更新计数(0的时候有可能是DDL指令)。
-               * 无论是返回结果集或是更新计数,那么则可能还继续有其它返回。
-               * 只有在当前指指针getResultSet()==null && getUpdateCount()==-1才说明没有再多的返回。
+               /*
+               	getUpdateCount()==-1,既不是结果集,又不是更新计数了.说明没的返回了。
+               	如果getUpdateCount()>=0,则说明当前指针是更新计数(0的时候有可能是DDL指令)。
+               	无论是返回结果集或是更新计数,那么则可能还继续有其它返回。
+               	只有在当前指指针getResultSet()==null && getUpdateCount()==-1才说明没有再多的返回。
                */
                if (stmt.getUpdateCount() == -1) {
                    // no more results. Must be no resultset
@@ -628,7 +649,9 @@ public BoundSql getBoundSql(Object parameterObject) {
            }
        }
        
-       /** 将结果集ResultSet封装到ResultSetWrapper实例中 */
+       /* 
+       	将结果集ResultSet封装到ResultSetWrapper实例中 
+          */
        return rs != null ? new ResultSetWrapper(rs, configuration) : null;
    }
    ```
@@ -756,7 +779,8 @@ public BoundSql getBoundSql(Object parameterObject) {
          Object rowValue = createResultObject(rsw, resultMap, lazyLoader, null);
          
          /*
-         	对这个返回结果执行对应的 typeHandler；如果这个 resultType 不存在 typeHandler，则直接返回原来的对象
+         	对这个返回结果执行对应的 typeHandler；如果这个 resultType 不存在 typeHandler，
+         	则直接返回原来的对象
          */
          if (rowValue != null && !hasTypeHandlerForResultObject(rsw, resultMap.getType())) {
              /** 
@@ -787,11 +811,11 @@ public BoundSql getBoundSql(Object parameterObject) {
          return rowValue;
      }
      ```
-
+   
      其中，最主要的两部分是调用`createResultObject`方法创建一个结果对象和调用 `applyAutomaticMappings` 方法将查询到的数据赋值到创建的结果对象中。
-
+   
      - `createResultObject` 的源代码如下：
-
+   
        ```java
        private Object createResultObject(ResultSetWrapper rsw, ResultMap resultMap, ResultLoaderMap lazyLoader,
                                          String columnPrefix) throws SQLException {
@@ -804,7 +828,7 @@ public BoundSql getBoundSql(Object parameterObject) {
            */
            Object resultObject = createResultObject(rsw, resultMap, constructorArgTypes, constructorArgs, columnPrefix);
        
-           /** 
+           /*
            	判断resultMap.getType() 是否存在TypeHandler
            */
            if (resultObject != null && !hasTypeHandlerForResultObject(rsw, resultMap.getType())) {
@@ -828,11 +852,11 @@ public BoundSql getBoundSql(Object parameterObject) {
            return resultObject;
        }
        ```
-
+   
        
-
+   
      - `applyAutomaticMappings` 的源代码如下所示：
-
+   
        ```java
        private boolean applyAutomaticMappings(ResultSetWrapper rsw, ResultMap resultMap, MetaObject metaObject,
                                               String columnPrefix) throws SQLException {
@@ -859,9 +883,9 @@ public BoundSql getBoundSql(Object parameterObject) {
            return foundValues;
        }
        ```
-
+   
        `UnMappedColumnAutoMapping` 类定义如下：
-
+   
        ```java
        private static class UnMappedColumnAutoMapping {
            private final String column;
@@ -878,22 +902,24 @@ public BoundSql getBoundSql(Object parameterObject) {
            }
        }
        ```
-
+   
        
-
+   
    - `storeObject`，主要的任务是将查询到的 POJO 对象存储到 `ResultHandler`对象中（这里是 `DefaultResultHandler`）
-
+   
      ```java
      private void storeObject(ResultHandler<?> resultHandler, DefaultResultContext<Object> resultContext,
                               Object rowValue, ResultMapping parentMapping, ResultSet rs) throws SQLException {
          if (parentMapping != null) {
              linkToParents(rs, parentMapping, rowValue);
          } else {
-             /** 将结果存储到DefaultResultHandler中 */
+             /*
+             	将结果存储到DefaultResultHandler中
+             */
              callResultHandler(resultHandler, resultContext, rowValue);
          }
      }
      ```
-
+     
      
 

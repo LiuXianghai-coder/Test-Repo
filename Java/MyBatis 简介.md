@@ -527,7 +527,7 @@ public class Message {
 }
 ```
 
-在 Mapper XML 映射文件中添加对应的级联关系：
+在 `MessageMapper` 对应的 XML 映射文件中添加对应的级联关系：
 
 ```xml
 <?xml version="1.0" encoding="utf-8" ?>
