@@ -134,7 +134,7 @@ spring:
 
 ![2022-03-08 20-19-37 的屏幕截图.png](https://s2.loli.net/2022/03/08/BL4lPAdsbZWIGO7.png)
 
-## 原理分析
+### 处理流程
 
 Spring Cloud GateWay 请求的处理过程如下图所示：
 
@@ -207,7 +207,104 @@ GateWay Filter 的实现方式也分为两种：`GateWayFilter`、`GlobalFilter`
     Spring Cloud GateWay 内置的集中 `GlobalFilter`：
 
     - `GatewayMetricsFilter`：网关指标过滤器，提供监视指标，可以结合 Spring Actuactor 对 Spring Boot 应用程序进行监控
-    - 
+
+### 自定义 Filter
+
+- 自定义 `GateWayFilter`
+
+    如果需要自定义 `GateWayFilter`，通过继承 `AbstractGatewayFilterFactory` 来自定义具体的行为可能是一个比较好的选择，示例代码如下：
+
+    ```java
+    import org.slf4j.Logger;
+    import org.slf4j.LoggerFactory;
+    import org.springframework.cloud.gateway.filter.GatewayFilter;
+    import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFactory;
+    import org.springframework.stereotype.Component;
+    import reactor.core.publisher.Mono;
+    
+    /*
+        需要注意的是自定义的 Filter 的类名必须是以 “GatewayFilterFactory” 结尾，这是因为 Spring Cloud GateWay
+        在进行解析是会去掉这个结尾部分，这也是 “约定优于配置” 的一个场景
+    */
+    @Component // 必须能够被 Spring 容器发现
+    public class XhliuGatewayFilterFactory
+            extends AbstractGatewayFilterFactory<XhliuGatewayFilterFactory.XhliuConfig> {
+    
+        private final static Logger log = LoggerFactory.getLogger(XhliuGatewayFilterFactory.class);
+    
+        public XhliuGatewayFilterFactory() {
+            super(XhliuConfig.class);
+        }
+    
+        @Override
+        public GatewayFilter apply(XhliuConfig config) {
+            return ((exchange, chain) -> {
+                log.info("XhliuGateWayFilter [Pre] Filter Request, Config's name={}", config.getName());
+                return chain.filter(exchange)
+                        .then(Mono.fromRunnable(
+                                () -> {
+                                    log.info("XhliuGateWayFilter [Post] Response Filter");
+                                }
+                        ));
+            });
+        }
+    
+        /*
+            该配置类的主要目的是获取在 yaml 配置文件中配置的属性信息
+        */
+        static class XhliuConfig {
+            private String name;
+    
+            public String getName() {
+                return name;
+            }
+    
+            public void setName(String name) {
+                this.name = name;
+            }
+        }
+    }
+    ```
+
+- 自定义 `GlobalFilter`
+
+    如果要自定义 `GlobalFilter` 的话，只需要实现 `GlobalFilter` 接口即可，如下所示：
+
+    ```java
+    import org.slf4j.Logger;
+    import org.slf4j.LoggerFactory;
+    import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+    import org.springframework.cloud.gateway.filter.GlobalFilter;
+    import org.springframework.core.Ordered;
+    import org.springframework.stereotype.Component;
+    import org.springframework.web.server.ServerWebExchange;
+    import reactor.core.publisher.Mono;
+    
+    @Component
+    public class XhliuGlobalFilter
+            implements GlobalFilter, Ordered {
+    
+        private final Logger log = LoggerFactory.getLogger(XhliuGlobalFilter.class);
+    
+        @Override
+        public Mono<Void> filter(
+                ServerWebExchange exchange,
+                GatewayFilterChain chain
+        ) {
+            log.info("XhliuGlobalFilter [Pre] Filter");
+            return chain.filter(exchange)
+                    .then(Mono.fromRunnable(() -> log.info("XhliuGlobalFilter [Post] Filter")));
+        }
+    
+        /*
+             表示该过滤器的执行顺序，值越小，执行优先级越高
+        */
+        @Override
+        public int getOrder() {
+            return 0;
+        }
+    }
+    ```
 
 <br />
 
