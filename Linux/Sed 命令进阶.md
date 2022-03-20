@@ -90,3 +90,68 @@ sed 通过顺序处理输入流来对每一行的数据执行对应的脚本，�
 sed '2,3b; s/the/a/' data.txt
 ```
 
+[label] 是类似 `goto` 语句的结构，如果希望当匹配到 `first` 文本时，跳转到执行不同的脚本，可以执行类似下面的命令：
+
+```sed
+sed '{/first/b jump1; s/This/No Jump/
+:jump1
+s/This/Jump Here/
+}' data.txt
+```
+
+当匹配到 “first” 时，则会将执行将 ”This“ 替换为 ”Jump Here“ 的脚本，而不是替换成为 ”No Jump“
+
+**注意：** 标签名的最大长度为 $7$ 个字符
+
+### 测试
+
+和分支命令类似，测试命令 `t`（test）也可以用来改变 sed 编辑器脚本的执行流程，该命令和 `if` 语句类似。
+
+使用格式如下：
+
+[address]t [label]
+
+例如，如下的脚本：
+
+```bash
+sed '{
+s/first/matched/
+t
+s/This/No Matched/
+}' data.txt
+```
+
+当处理的文本包含 ”first“ 时，会将 ”first“ 替换为 ”matched“，否则将该文本中的 ”This“ 替换为 ”No Matched“
+
+测试命令 `t` 同样可以使用和分支类似的标签语义
+
+### 模式替代
+
+替换命令 `s` 已经十分了解，试想一下这样一种情况：希望为某个单词加上引号，似乎一般的 `s` 命令不能完美解决这个问题（无法知道匹配到的实际单词），为了解决这个问题，在传统的 Unix 中提供了 ‘&’ 符号用于表示匹配到的字符串，因此，如果希望给 ”the“ 加上引号，可以执行如下的脚本：
+
+```sed
+sed 's/th./"&"/' data.txt
+```
+
+有时可能希望替换掉一个字符串中的单词，那么可以考虑使用括号来进行单独的替换，括号表示一个子模式，如下所示：
+
+```sed
+# \1 表示匹配到的子模式
+echo "This is System Administrator manual" | sed 's/\(System\).Administrator/\1 User/'
+```
+
+**注意：**子模式的括号需要使用 `\` 进行转义，否则会被视为一般的字符
+
+”\1“ 表示第一个括号的子模式，”\2“ 表示第二个括号的子模式…………
+
+结合正则表达式可能使用得更加得心应手
+
+
+
+<br />
+
+参考：
+
+<sup>[1]</sup> 《Linux 命令行与 Shell 脚本编程大全》
+
+<sup>[2]</sup> https://www.gnu.org/software/sed/manual/sed.html
