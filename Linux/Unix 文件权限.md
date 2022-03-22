@@ -200,3 +200,15 @@ chmod +t 1.txt
 - `/tmp` 目录
 
     为了防止无意的删除，`/tmp` 目录具备 “粘着位” 的特殊权限，由于带有粘着位的文件会使得进程结束之后文件依旧驻留在内存中，因此除了文件的属主（或者 `root` 用户）之外无法删除这些带有粘着位的文件，由于 `/tmp` 目录本身自带粘着位，因此即使使用 `/tmp` 目录的进程结束了，依旧无法随意删除 `/tmp` 目录中不属于当前用户或当前用户组的文件
+
+
+
+<br />
+
+参考：
+
+<sup>[1]</sup> 《Linux 命令行与 Shell 脚本编程大全》
+
+<sup>[2]</sup> https://www.redhat.com/sysadmin/suid-sgid-sticky-bit
+
+<sup>[3]</sup> https://docs.oracle.com/cd/E19253-01/819-7061/secfile-69/index.html
