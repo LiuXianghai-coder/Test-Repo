@@ -256,3 +256,102 @@ ssize_t msgrcv(int msqid, void *msgp, size_t msgsz, long msgtyp,
 当 `msgrcv` 成功执行时，内核会自动更新消息队列的状态
 
 ### 信号量
+
+信号量是一个计数器，用于提供多个进程之间对共享数据的访问功能
+
+一个进程如果想要获取共享资源，那么它需要经历以下几个操作：
+
+1. 测试控制该资源的信号量
+2. 如果该信号量为正，那么这个进程就可以使用该资源，在这种情况下，进程会将信号量的值 -1，表示当前的进程使用了一个资源单位
+3. 如果该信号量为 0，那么进程将会进入阻塞状态，直到当前检查的信号量的值大于 0，当进程正常恢复时，将会重复步骤 1
+4. 当一个进程不再使用一个由信号量控制的共享资源时，将会将该信号量 +1，如果此时有进程在等待这个信号量，那么唤醒这些进程
+
+由于一个信号量可能会被多个进程同时访问，因此为了保证信号量的正确性，这些增减操作都必须是原子操作，因此信号量一般都在内核中实现
+
+内核会为每个信号量维护一个 `semid_ds` 的结构，如下所示：
+
+```c
+#include <sys/sem.h>
+
+struct semid_ds {
+    struct ipc_perm sem_perm;  /* Ownership and permissions */
+    time_t          sem_otime; /* 上次的 semop 时间 */
+    time_t          sem_ctime; /* 创建时间或者上次修改时间 */
+    unsigned long   sem_nsems; /* 在集合中的信号量的编号 */
+};
+```
+
+如果希望使用信号量时，首先需要通过 `semget` 来获取一个信号量 ID，该函数的原型如下所示：
+
+```c
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
+
+/*
+	nsems 表示信号量的个数，如果是创建新的 IPC，那么必须指定 nsems；如果是引用一个现有的 IPC，则将 nsems 置为 0
+*/
+int semget(key_t key, int nsems, int semflg);
+```
+
+创建完成信号量之后，通过 `semctl` 来操作信号量，该函数的原型如下所示：
+
+```c
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
+
+int semctl(int semid, int semnum, int cmd, ...);
+```
+
+第四个可选参数为一个共用体，具体原型如下所示：
+
+```c
+union semun {
+    int              val;    /* Value for SETVAL */
+    struct semid_ds *buf;    /* Buffer for IPC_STAT, IPC_SET */
+    unsigned short  *array;  /* Array for GETALL, SETALL */
+    struct seminfo  *__buf;  /* Buffer for IPC_INFO
+                                           (Linux-specific) */
+};
+```
+
+可以通过 `semop` 函数来自动执行信号量集合上的操作数组，该函数原型如下所示：
+
+```c
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
+
+/*
+	sops 指向信号量操作集合，其结构体包含如下的几个字段：
+	unsigned short sem_num; // 信号数，即操作信号量集合中的信号的 id 
+           short          sem_op;   // 对该信号执行的操作，可以为正值、0、负值
+           short          sem_flag;  // 操作标记
+*/
+int semop(int semid, struct sembuf *sops, size_t nsops); // semop 具有原子性
+```
+
+`sem_op` 的取值介绍如下：
+
+- 如果 `sem_op` 为正值：该值对应于进程释放的占用的资源数，经过该操作之后，会将 `sem_op` 的值加到信号量的值上。如果将 `sem_flag` 设置为 `SEM_UNDO`，那么会将调整后的信号量的值再减去 `sem_op`，相当于没有进行操作
+
+- 如果 `sem_op` 为负值：表示要获取由该进程控制的资源。
+
+    如果该信号量的值大于等于 `sem_op` 的绝对值，那么会从信号量值中减去 `sem_op` 的绝对值。如果制定了 `sem_flag` 为 `SEM_UNDO`，那么 `sem_op` 的绝对值也会加到该进程的此信号调整值上
+
+    如果该信号量的值小于 `sem_op` 的绝对值，那么会有以下几种情况：
+
+    - 如果指定了 `sem_flag` 为 `IPC_NOWAIT`，那么 `semop` 就会出错并返回 `EAGIN`
+    - 如果没有指定 `IPC_NOWAIT`，那么就会将该信号量的 `semcnt` 加一（进程进入休眠状态），然后调用进程被挂起，直到发生以下事件之一：
+        - 信号量的值大于等于 `sem_op` 的绝对值，此时信号两的 `semcnt` 值 -1（进程等待结束），然后再按照类似的方式从信号量的值中减去 `sem_op` 的绝对值
+        - 系统删除了次 IPC，在这种情况下，将会出错并返回 `EIDRM`
+        - 进程捕捉到一个信号，并从信号处理程序中返回，在这种情况下，此信号量的 `semcnt` 将会 -1（进程不再等待），并且函数出错并返回 `EINTR`
+
+- 如果 `sem_op` 的值为 0：表示调用进程希望等待直到信号量的值变为 0。如果当前信号量的值为 0，那么当前函数将会立刻返回；如果此时的信号量不是 0，那么有如下几种情况：
+
+    - 如果 `sem_flag` 指定了 `IPC_WAIT`，则出错返回 `EAGIN`
+    - 如果未指定 `IPC_WAIT`，那么该信号量的 `semcnt` 的值 +1（进程进入休眠状态），然后进程被挂起，等待以下的事件发生：
+        - 此信号值变为 0，此时会将 `semcnt` 值 -1（等待进程结束等待）
+        - 系统删除了此 IPC，在这种情况下，函数出错并返回 `EIDRM`
+        - 进程捕捉到一个信号，并从信号等待程序中返回，在这种情况下，此信号的 `semcnt` 的值 -1（调用进程不再等待），并且函数出错并返回 `EINTR` 
