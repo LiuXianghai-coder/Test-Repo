@@ -44,27 +44,27 @@ int pipe(int fd[2]); // 若创建成功，则返回 0，否则返回 -1
 #define MAXLEN 4096
 
 int main(int argc, char ** argv) {
-    int 	n;
-    int 	fd[2];
-    pid_t 	pid;
-    char	line[MAXLEN];
-    char	*content = "From Parent: Hello World\n";
+    int     n;
+    int     fd[2];
+    pid_t     pid;
+    char    line[MAXLEN];
+    char    *content = "From Parent: Hello World\n";
 
     if (pipe(fd) < 0) {
-	perror("pipe create error!");
-	exit(1);
+    perror("pipe create error!");
+    exit(1);
     }
 
     if ((pid = fork()) < 0) {
-	perror("fork process error!");
-	exit(1);
+    perror("fork process error!");
+    exit(1);
     } else if (pid > 0) {
-	close(fd[0]);
-	write(fd[1], content, strlen(content)); // 父进程写入数据内容到管道
+    close(fd[0]);
+    write(fd[1], content, strlen(content)); // 父进程写入数据内容到管道
     } else {
-	close(fd[1]);
-	n = read(fd[0], line, MAXLEN);
-	write(STDOUT_FILENO, line, n); // 子进程读取管道内的内容并输出到标准输出
+    close(fd[1]);
+    n = read(fd[0], line, MAXLEN);
+    write(STDOUT_FILENO, line, n); // 子进程读取管道内的内容并输出到标准输出
     }
 
     exit(0);
@@ -132,26 +132,22 @@ XSI IPC 有三种形式的 IPC：消息队列、信号量以及共享内存
 
 标识符是 XSI IPC 内部的命名，为了能够在多个合作进程上使用同一个 XSI IPC，需要提供一个外部的命名方案。因此，每个 XSI IPC 对象都和一个键（key）关联，将这个键作为该 IPC 的外部名
 
-
-
 使用 XSI IPC 存在以下的一些优点：
 
 - XSI IPC 是可靠的、流控制的并且是面向记录的
 - XSI IPC 允许以一种非先进先出的方式进行消息的处理
 
-
-
 但是 XSI IPC 存在以下的一些问题：
 
 - XSI IPC 结构的作用范围在整个系统，因此进程自身无法直接管理这些 IPC。例如，如果一个进程创建了一个消息队列，并且在之后放入了消息，那么在进程终止之后该消息队列会依旧存在。
-
-    > 进程可以通过 `ipcrm` 命令来间接地删除 IPC
+  
+  > 进程可以通过 `ipcrm` 命令来间接地删除 IPC
 
 - XSI IPC 结构在文件系统中没有名字，因此不能像一般的访问文件的形式直接访问这些 IPC。
-
-    > 为了支持访问这些 IPC，系统提供了很多的系统调用，如：`msgget`、`semop`、`shmat` 等
-    >
-    > 可以通过 `ipcs` 来查看当前系统中存在的 IPC
+  
+  > 为了支持访问这些 IPC，系统提供了很多的系统调用，如：`msgget`、`semop`、`shmat` 等
+  > 
+  > 可以通过 `ipcs` 来查看当前系统中存在的 IPC
 
 - 由于这些 XSI IPC 不使用文件描述符，因此 XSI IPC 也无法享受多路复用技术带来的优势，因此很难一次使用一个以上的 XSI IPC 结构
 
@@ -182,7 +178,7 @@ struct msqid_ds {
     unsigned long   __msg_cbytes; /* 当前消息队列中的字节数， 初始化为 0 值*/
     msgqnum_t       msg_qnum;     /* 当前队列中的消息数量， 初始化为 0 值*/
     msglen_t        msg_qbytes;   /* 在当前消息队列中允许的最大字节数 ，设置为系统限制数*/
-    
+
     pid_t           msg_lspid;    /* 最近一次发送消息的进程 ID */
     pid_t           msg_lrpid;    /* 最近一次收到消息的进程 ID */
 };
@@ -236,8 +232,8 @@ struct msg {
 #include <sys/msg.h>
 
 /*
-	msgp 指向消息变量，msgsz 表示指定接受缓冲区的长度
-	msgtp 表示要接受的消息的类型
+    msgp 指向消息变量，msgsz 表示指定接受缓冲区的长度
+    msgtp 表示要接受的消息的类型
 */
 ssize_t msgrcv(int msqid, void *msgp, size_t msgsz, long msgtyp,
                int msgflg);
@@ -289,7 +285,7 @@ struct semid_ds {
 #include <sys/sem.h>
 
 /*
-	nsems 表示信号量的个数，如果是创建新的 IPC，那么必须指定 nsems；如果是引用一个现有的 IPC，则将 nsems 置为 0
+    nsems 表示信号量的个数，如果是创建新的 IPC，那么必须指定 nsems；如果是引用一个现有的 IPC，则将 nsems 置为 0
 */
 int semget(key_t key, int nsems, int semflg);
 ```
@@ -324,8 +320,8 @@ union semun {
 #include <sys/sem.h>
 
 /*
-	sops 指向信号量操作集合，其结构体包含如下的几个字段：
-	unsigned short sem_num; // 信号数，即操作信号量集合中的信号的 id 
+    sops 指向信号量操作集合，其结构体包含如下的几个字段：
+    unsigned short sem_num; // 信号数，即操作信号量集合中的信号的 id 
            short          sem_op;   // 对该信号执行的操作，可以为正值、0、负值
            short          sem_flag;  // 操作标记
 */
@@ -337,21 +333,101 @@ int semop(int semid, struct sembuf *sops, size_t nsops); // semop 具有原子�
 - 如果 `sem_op` 为正值：该值对应于进程释放的占用的资源数，经过该操作之后，会将 `sem_op` 的值加到信号量的值上。如果将 `sem_flag` 设置为 `SEM_UNDO`，那么会将调整后的信号量的值再减去 `sem_op`，相当于没有进行操作
 
 - 如果 `sem_op` 为负值：表示要获取由该进程控制的资源。
-
+  
     如果该信号量的值大于等于 `sem_op` 的绝对值，那么会从信号量值中减去 `sem_op` 的绝对值。如果制定了 `sem_flag` 为 `SEM_UNDO`，那么 `sem_op` 的绝对值也会加到该进程的此信号调整值上
-
+  
     如果该信号量的值小于 `sem_op` 的绝对值，那么会有以下几种情况：
-
-    - 如果指定了 `sem_flag` 为 `IPC_NOWAIT`，那么 `semop` 就会出错并返回 `EAGIN`
-    - 如果没有指定 `IPC_NOWAIT`，那么就会将该信号量的 `semcnt` 加一（进程进入休眠状态），然后调用进程被挂起，直到发生以下事件之一：
-        - 信号量的值大于等于 `sem_op` 的绝对值，此时信号两的 `semcnt` 值 -1（进程等待结束），然后再按照类似的方式从信号量的值中减去 `sem_op` 的绝对值
-        - 系统删除了次 IPC，在这种情况下，将会出错并返回 `EIDRM`
-        - 进程捕捉到一个信号，并从信号处理程序中返回，在这种情况下，此信号量的 `semcnt` 将会 -1（进程不再等待），并且函数出错并返回 `EINTR`
+  
+  - 如果指定了 `sem_flag` 为 `IPC_NOWAIT`，那么 `semop` 就会出错并返回 `EAGIN`
+  - 如果没有指定 `IPC_NOWAIT`，那么就会将该信号量的 `semcnt` 加一（进程进入休眠状态），然后调用进程被挂起，直到发生以下事件之一：
+    - 信号量的值大于等于 `sem_op` 的绝对值，此时信号两的 `semcnt` 值 -1（进程等待结束），然后再按照类似的方式从信号量的值中减去 `sem_op` 的绝对值
+    - 系统删除了次 IPC，在这种情况下，将会出错并返回 `EIDRM`
+    - 进程捕捉到一个信号，并从信号处理程序中返回，在这种情况下，此信号量的 `semcnt` 将会 -1（进程不再等待），并且函数出错并返回 `EINTR`
 
 - 如果 `sem_op` 的值为 0：表示调用进程希望等待直到信号量的值变为 0。如果当前信号量的值为 0，那么当前函数将会立刻返回；如果此时的信号量不是 0，那么有如下几种情况：
+  
+  - 如果 `sem_flag` 指定了 `IPC_WAIT`，则出错返回 `EAGIN`
+  - 如果未指定 `IPC_WAIT`，那么该信号量的 `semcnt` 的值 +1（进程进入休眠状态），然后进程被挂起，等待以下的事件发生：
+    - 此信号值变为 0，此时会将 `semcnt` 值 -1（等待进程结束等待）
+    - 系统删除了此 IPC，在这种情况下，函数出错并返回 `EIDRM`
+    - 进程捕捉到一个信号，并从信号等待程序中返回，在这种情况下，此信号的 `semcnt` 的值 -1（调用进程不再等待），并且函数出错并返回 `EINTR` 
 
-    - 如果 `sem_flag` 指定了 `IPC_WAIT`，则出错返回 `EAGIN`
-    - 如果未指定 `IPC_WAIT`，那么该信号量的 `semcnt` 的值 +1（进程进入休眠状态），然后进程被挂起，等待以下的事件发生：
-        - 此信号值变为 0，此时会将 `semcnt` 值 -1（等待进程结束等待）
-        - 系统删除了此 IPC，在这种情况下，函数出错并返回 `EIDRM`
-        - 进程捕捉到一个信号，并从信号等待程序中返回，在这种情况下，此信号的 `semcnt` 的值 -1（调用进程不再等待），并且函数出错并返回 `EINTR` 
+### 共享存储
+
+共享存储允许两个或者多个进程贡献一个给定的存储区，由于数据不需要在进程之间进行复制，因此这是最快的一种 IPC。由于同一时刻可能会有多个进程同时访问某个共享存储，因此需要注意这些操作的同步问题。
+
+内核会为每个共享存储维护一个结构体变量，这个结构体变量应当至少包含以下几个字段：
+
+```c
+struct shmid_ds {
+    struct ipc_perm     shm_perm; // IPC 权限
+    size_t　　　　　shm_segsz;　 /* 共享存储段的长度 */
+    pid_t　　　　　 shm_lpid;　 /* 上次调用 shmop() 的进程 ID */
+    pid_t　　　　　 shm_cpid;　 /* 创建该 IPC 的进程 ID */
+    shmatt_t　　　　shm_nattch; // 当前访问该 IPC 的进程数
+    time_t　　　　　shm_atime;　 
+    time_t　　　　　shm_dtime;　 
+    time_t　　　　　shm_ctime;
+}
+```
+
+如果希望创建一个共享存储，首先需要调用 `shmget` 获得一个贡献存储的唯一标识，该函数原型如下所示：
+
+```c
+#include <sys/ipc.h>
+#include <sys/shm.h>
+
+int shmget(key_t key, size_t size, int shmflg);
+```
+
+对于参数 `size` 来讲，表示该共享存储段的长度，以字节为单位，实现时通常会向上取整为系统内存的页大小的整数倍，如果指定的 `size` 不是系统页大小的整数倍，那么最后一页的剩余部分将会是不可用的。如果希望创建一个新的共享存储段，那么必须指定 `size` 参数，但是如果是引用一个现存的共享存储段，那么一般会将 `size` 参数置为 $0$。
+
+可以通过 `shmctl` 对共享存储段执行多种操作，该函数原型如下所示：
+
+```c
+#include <sys/ipc.h>
+#include <sys/shm.h>
+
+int shmctl(int shmid, int cmd, struct shmid_ds *buf);
+```
+
+其中，`cmd` 参数至少可以为以下几种参数中的一种，并使其在 `shmid` 指定的段上执行：
+
+- IPC_STAT：获取当前段的 `shmid_ds` 结构，并将其存储到 `buf` 指向的结构体中
+
+- `IPC_SET`：按照 `buf` 指向的结构中的值设置和此共享存储段相关联的 `shmid_ds` 结构体中的 $3$ 个字段：`shm_perm.uid`、`shm_perm.gid`、`shm_perm.mode`。这个命令只能有创建该 IPC 的用户或者具有超级用户权限的用户才能执行
+
+- `IPC_RMID`：从共享存储中删除此共享存储段。由于每个共享存储段都维护着一个连接计数字段（`shmid_ds.shm_nattch`），因此只有在使用该存储段的最后一个进程终止或者与该存储段分离，否则实际上不会删除该共享存储段。然而，不管该共享存储段是否被使用，该段的标识符都会被立即删除，因此不能再使用 `shmat` 连接该存储段。该命令同样只能具有对应的权限的用户进程才能执行
+
+一旦创建了一个共享存储段，那么进程就可以通过调用 `shmat` 将其连接到它的地址空间中，该函数的原型如下所示：
+
+```c
+#include <sys/ipc.h>
+#include <sys/shm.h>
+
+// 如果调用成功，返回指向共享存储段的指针；如果出错，返回 -1
+void *shmat(int shmid, const void *addr, int flag);
+```
+
+共享存储段连接到调用进程的地址空间位置有由 `addr` 参数和 `flag` 参数是否指定 `SHM_RND` 有关：
+
+- 如果 `addr` 参数为 $0$ ：将此共享存储段连接到内核可以选择的第一个可用地址上，这也是推荐的方式
+
+- 如果 `addr` 参数不为 $0$，并且没有指定 `SHM_RAND` 标记，那么此共享段将会连接到 `addr` 指定的地址上
+
+- 如果 `addr` 不为 $0$，并且指定了 `SHM_RAND` 标记，那么将会将此共享段连接到 $addr - (addr \mod SHMLBA)$ 表示的地址上。`SHM_RAND` 表示向下取整，而 `SHMLBA` 表示 “低边界地址数”
+
+如果指定了 `flag` 为 `SHM_RDONLY`，则以只读的方式连接此共享存储段，否则以读写的方式连接此共享存储段
+
+如果对共享存储段的操作已经结束，可以通过调用 `shmdt` 将调用进程和共享存储段进行分离（这并不会导致系统删除其表示符以及相关的数据结构），该函数原型如下所示：
+
+```c
+#include <sys/ipc.h>
+#include <sys/shm.h>
+
+
+/**
+    addr 表示之前调用 shmat 得到的连接地址
+*/
+int shmdt(const void *addr);
+```
