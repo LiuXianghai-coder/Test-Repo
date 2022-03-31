@@ -431,3 +431,73 @@ void *shmat(int shmid, const void *addr, int flag);
 */
 int shmdt(const void *addr);
 ```
+
+## Unix 域套接字
+
+和一般的套接字连接两台计算机之间的通信类似，与之不同的是 Unix 域套接字只用于同一台计算机上运行的进程之间的通信，由于 Unix 域套接字不需要处理额外的协议信息，因此相对于一般的套接字来讲会更加高效
+
+Unix 域套接字提供流和数据报两种接口，Unix 域数据报服务是可靠的，既不会丢失报文也不会在传递的过程中出错。Unix 域套接字更加像是套接字和管道的混合。可以通过 `socketpair` 函数来创建一对没有名字的、互相连接的 Unix 域套接字，该函数原型如下所示：
+
+```c
+#include <sys/types.h>
+#include <sys/socket.h>
+
+int socketpair(int domain, int type, int protocol, int sv[2]);
+```
+
+通过 `socketpair` 创建的 Unix 域套接字可以起到全双工管道的作用，即两端对于读和写都是开放的，如下图所示：
+
+<img src="https://s2.loli.net/2022/03/30/tiIZjax6X1PfErq.png" alt="socketpair.png" style="zoom:80%;" />
+
+由于套接字本身是一个文件，因此它可以享受到由 IO 多路复用技术带来的优势，不仅如此，Unix 域套接字也可以结合 XSI 消息队列来使得消息队列能够享受到 IO 多路复用带来的好处，具体做法是：在消息队列中开启一个线程，该线程一直阻塞直到从消息队列中获取到消息，当消息到达时，该线程会将它写入到 Unix 域套接字对中，然后再通过 `select` 或 `poll` 检查可用的套接字 `fd`，此时进程将会从套接字对的另一端读取到数据
+
+### 命名 Unix 域套接字
+
+使用 `socketpair` 可以很方便地创建一个互相连接的套接字对，但是这样创建的套接字对由于没有名字或者唯一的表示符，因此其它的进程便不能够使用这个套接字对。
+
+正如一般的套接字编程一样，可以给每个 Unix 域套接字命名，使得其它的进程都能够使用这个套接字，如下示例所示：
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <stddef.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+
+int main(int argc, char **argv) {
+    int     fd, size;
+    struct sockaddr_un un;
+
+    un.sun_family = AF_UNIX;
+    strcpy(un.sun_path, "foo.socket");
+
+    if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
+        fprintf(stderr, "socket failed.\n");
+        exit(1);
+    }
+
+    size = offsetof(struct sockaddr_un, sun_path) + strlen(un.sun_path);
+    if (bind(fd, (struct sockaddr *) &un, size) < 0) {
+        fprintf(stderr, "bind failed.\n");
+        exit(1);
+    }
+
+    fprintf(stdout, "Unix Domain Socket bound.\n");
+    exit(0);
+}
+```
+
+`struct sockaddr` 包含了了一 `sun_path` 的属性，这个属性表示创建的套接字文件所在的路径，当调用 `bind` 方法时，将会自动创建一个 `S_IFSOCKT` 类型的文件，由于这个文件具有名字，因此此时的 Unix 域套接字也就同时具备了名字。
+
+注意这个文件仅仅只是为了告诉其它的进程存在这样的一个 Unix 域套接字，这个文件不能被打开，也不能被应用程序用于通信，如果希望创建套接字使得两个进程通过该套接字进行通信，可以考虑使用 `accept`
+
+
+
+<br />
+
+参考：
+
+<sup>[1]</sup> 《Unix 环境高级编程》
+
