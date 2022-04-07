@@ -67,11 +67,3 @@ WHERE
 ORDER BY
     inventory_id, customer_id
 ```
-
-
-
-
-
-
-
-
