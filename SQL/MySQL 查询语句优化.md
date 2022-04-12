@@ -236,8 +236,34 @@ WHERE
 
 ![image.png](https://s2.loli.net/2022/04/11/ra1qzNfUniRel7b.png)
 
-可以看到，查询时首先会对 `employee` 表进行一次全表查询。为了解决这个问题，可以通过直接连接的方式进行查询而不是通过子查询的方式。
+可以看到，查询时首先会对 `employee` 表进行一次全表查询。为了解决这个问题，可以通过直接连接的方式进行查询而不是通过子查询的方式，如下所示：
+
+```sql
+SELECT 
+    salaries.*
+FROM
+     salaries
+JOIN employees ON salaries.emp_no = employees.emp_no
+WHERE 
+    employees.birth_date BETWEEN '1960-01-01' AND '1962-01-01'
+```
 
 - UNION 查询
+  
+  如果希望 UNION 的各个子句能够根据 `LIMIT` 子句只取部分的结果集合，或者希望能够先进行排序在合并结果集合，那么就需要在 UNION 的各个子句中分别使用这些子句。
+  
+  在 MySQL 8.0 中此项优化无效
 
-- 
+## 优化特定查询
+
+### 优化 `COUNT()` 函数
+
+`COUNT()` 函数是一个特殊的函数，一般情况下有两种使用场景：统计某个列值的记录数、单纯地统计记录数。默认在统计时统计非 NULL 值的记录数，但是如果在函数中指定了对应的表达式，则统计的就是这个表达式的结果
+
+
+
+
+
+
+
+
