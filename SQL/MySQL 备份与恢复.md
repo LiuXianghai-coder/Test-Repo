@@ -256,3 +256,149 @@ L相比复制数据到快照中，LVM 只是简单地标记创建快照的时间
 
 LVM 有卷组的概念，它可以包含一个或者多个逻辑卷，可以通过 `vgs` 命令或者 `vgdisplay` 来查看系统中的卷组：
 
+#### 用于在线备份的 LVM 快照
+
+首先查看一下如何在不停止 MySQL 服务的情况下备份 InnoDB 数据库，这里需要使用一个全局的读锁。连接 MySQL 服务器并使用一个全局读锁将表刷到磁盘上，然后获取二进制日志的位置：
+
+```sql
+mysql> FLUSH TABLES WITH READ LOCK; SHOW MASTER STATUS;
+```
+
+记录 `SHOW MASTER STATUS` 的输出，确保 MySQL 的连接处于打开状态，使得读锁不被释放，然后获取 LVM 的快照并立即释放该读锁，可以使用 `UNLOCK TABLES` 或者直接关闭连接来释放锁。最后加载快照并复制文件到备份位置。
+
+这种方法的主要问题在于，获取读锁可能需要一点时间，如果存在大量查询的情况下，这个时间将会变得很长。当连接等待全局读锁时，所有的查询都将被阻塞，并且这个阻塞时间是不可预期的
+
+> 即使锁住所有的表，InnoDB 的后台线程依旧会继续工作，因此，即使在创建快照时，仍然可以向文件中写入数据。并且，由于 InnoDB 没有执行关闭操作，如果服务器意外断电，快照中的 InnoDB 文件回合服务器意外掉电后文件的遭遇一样
+
+#### LVM 快照无锁 InnoDB 备份
+
+无锁备份只有一点不同，区别在于不需要执行 `FLUSH TABLES WITH READ LOCK`。这意味着不能保证 MyISAM 文件在磁盘上一致。对于 InnoDB 来讲，这不是问题。在 MySQL 的系统中依旧存在这部分的 MyISAM 表。
+
+如果认为 MySQL 系统表可能会发生变更，那么可以锁住并刷新这些表。一般不会对这些表有长时间的查询，因此通常都会很快。
+
+```sql
+LOCK TABLE mysql.user READ, mysql.db READ, .....;
+FLUSH TABLES mysql.user, mysql.db, .....;
+```
+
+由于没有使用全局锁，因此不会从 `SHOW MASTER STATUS` 中获取到任何有用的信息。
+
+#### 规划 LVM 备份
+
+一般考虑如下几个方面：
+
+- LVM 只需要复制每个修改块到快照一次
+
+- 如果只是使用 InnoDB，要考虑 InnoDB 是如何写数据的。InnoDB 实际上需要对数据写两遍，至少一半的 InnoDB 的写 IO 会到双写缓冲、日志文件以及其它磁盘上相对小的区域中。这些部分会多次重用相同的磁盘块，因此第一次时对快照有影响，但是写过一次之后就不会对快照打来太大的压力
+
+- 对于反复修改的数据，需要评估有多少 IO 需要写入到那些还没有复制到写时复制空间的块中，对评估的结果需要保留足够的余量
+
+- 使用 `vmstat` 和 `iostat` 来收集服务器每秒写多少块的统计信息
+
+- 衡量复制备份到其它地方需要多久，换言之，需要在复制期间保持 LVM 快照打开多长时间
+
+## 从备份中恢复
+
+从备份中恢复数据或多或少要经历以下的步骤：
+
+- 停止 MySQL 服务器
+
+- 记录服务器的配置和文件权限
+
+- 将数据从备份中移动到 MySQL 的数据目录
+
+- 更改配置
+
+- 改变文件权限
+
+- 以限制访问模式重启服务器，等待完成启动
+
+- 载入逻辑备份文件
+
+- 检查和重放二进制日志
+
+- 检测已经还原的数据
+
+- 以完全权限重启服务器
+
+### 恢复物理备份
+
+// TODO
+
+### 恢复逻辑备份
+
+原则：使用较小的事务，多次提交，避免一次事务过大带来的问题
+
+#### 加载 SQL 文件
+
+对于导出的 SQL 文件，再导入回去时一般的做法是开启一个 MySQL 客户端然后运行这个文件中的 SQL，一般会执行如下的命令进行恢复：
+
+```shell
+mysql < xxx.sql
+```
+
+也可以使用客户端工具来恢复数据，使用 `SOURCE` 即可：
+
+```sql
+mysql> SET SQL_LOG_BIN=0; -- 关闭 binlog，恢复时 binlog 的写入是多余的
+mysql> SOURCE xxx.sql;
+mysql> SET SQL_LOG_BIN=1;
+```
+
+**注意：** 使用 `SOURCE` 时需要确保文件在 `mysql` 的运行目录下
+
+如果备份做过压缩，那么不需要单独进行解压，Unix 的管道是一个十分好的工具：
+
+```shell
+gunzip -c xxx.sql.gz | mysql
+```
+
+如果只是想恢复单个表，那么可以将数据使用 `grep` 或者 `sed` 进行过滤再放入 MySQL 客户端执行：
+
+```shell
+grep 'INSERT INTO `table_name`'  xxx.sql | mysql table_name
+```
+
+如果对于压缩好的文件，多使用一条管道即可：
+
+```sql
+gunzip -c xxx.sql.gz | grep 'INSERT INTO `table_name`' | mysql table_name
+```
+
+如果 schema 和 data 混合在一个 SQL 文件中，只是使用 `grep` 可能很难检出 `CREATE TABLE` 这样的语句，这样的话使用 `sed` 会是一个比较好的策略：
+
+```shell
+sed -e '/./{H;$!d;}' -e 'x;/CREATE TABLE `table_name`/!d;q' schema.sql
+```
+
+**Hint：** 这段 `sed` 脚本需要是使用即可，不要过于深究
+
+#### 加载符号分隔文件
+
+如果是通过 `SELECT INTO OUTFILE` 的方式导出的符号分隔符文件，那么可以使用 `LOAD DATA INFILE` 通过相同的参数来加载。也可以使用 `mysqlimport`，这个工具包装了 `LOAD DATA INFILE`
+
+`LOAD DATA INFILE` 必须直接从文本文件中读取，因此，对于压缩文件来讲，需要首先对文件进行解压，这是一个比较耗时的操作。在 Unix 类操作系统上，使用 FIFO（命名管道）可以高效的进行处理：
+
+```shell
+mkfifo /tmp/table_name.fifo
+chmod 666 /tmp/table_name.fifo
+gunzip -c /tmp/table.sql > /tmp/table_name.fifo
+```
+
+对于 FIFO 的介绍，可以参考 《Unix 环境高级编程》第十五章 进程间通信
+
+现在，该 FIFO 将会等待，直到有进程读取数据，读取 FIFO 中的数据，注意在读取之前关闭 binlog：
+
+```sql
+mysql> SET SQL_LOG_BIN=0;
+mysql> LOAD DATA INFILE '/tmp/table_name.info' INTO TABLE table_name;
+mysql> SET SQL_LOG_BIN=1;
+```
+
+执行完成之后，`gunzip` 也会成功结束，使用 `SOURCE` 加载压缩文件数据也可以使用类似的技术
+
+### 基于时间点的恢复
+
+使用 binlog 可以实现从指定的时间点开始的数据恢复，可以参考 [MySQL的binlog日志 - 马丁传奇 - 博客园](https://www.cnblogs.com/martinzhang/p/3454358.html)
+
+
