@@ -464,6 +464,6 @@ InnoDB 崩溃有以下三种情况：
 
 如果必须从损坏的数据中提取数据，那么一般的过程是先尝试让 InnoDB 运行起来，然后使用 `SELECT INTO OUTFILE` 导出数据。如果此时服务器已经奔溃，并且每次启动 InnoDB 都会崩溃，那么可以配置 InnoDB 停止常规恢复和后台进程的运行。这样也许可以启动服务器，然后在缺少或不做完整性检查的情况下做逻辑备份
 
-`innodb_force_recovery` 参数控制着 InnoDB 在启动和常规操作时要做哪一类的操作。通常情况下这个值是 $0$，可以增大到 $6$ https://dev.mysql.com/doc/refman/8.0/en/forcing-innodb-recovery.html 。
+`innodb_force_recovery` 参数控制着 InnoDB 在启动和常规操作时要做哪一类的操作。通常情况下这个值是 $0$，可以增大到 $6$ https://dev.mysql.com/doc/refman/8.0/en/forcing-innodb-recovery.html 。当把 `innodb_force_recovery` 设置为大于 $0$ 的某个值时，InnoDB 基本上是只读的，但是仍然可以创建和删除表，这可以防止进一步的数据损坏，InnoDB 会放松一些常规检查，以便在发现坏数据时不会特意崩溃，在常规操作中，这样做是有安全保障的，但是在恢复时，最好还是避免这样做。
 
-
+如果 InnoDB 的数据损坏到了已经不能启动的程度，那么就需要使用特殊的工具来检出数据来进行恢复
