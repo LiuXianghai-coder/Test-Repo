@@ -113,7 +113,7 @@ public class NormalDateSerializerAdapter
         SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         return new JsonPrimitive(format.format(src));
     }
-    
+
     @SneakyThrows
     @Override
     public Date deserialize(
@@ -141,7 +141,6 @@ Gson gson = new GsonBuilder()
 ```
 
 有时由于恶性的需求的原因，这种全局的时间格式可能并不能满足要求。有些需求并不需要时间精确到时分秒。针对这种情况，在 Gson 中注册类型适配器无法满足要求。和 Jackson 类似同，Gson 也支持通过注解的方式来设置字段的序列化格式，这样就能够使得序列化的领域精确到某一个字段属性，Gson 通过 `@JsonAdapter` 的注解来定义属性的对象序列化格式，如下所示：
-
 
 ```java
 import com.google.gson.*;
@@ -180,8 +179,6 @@ public class Person {
         }
     }
 }
-
-
 ```
 
 这样，在序列化这个对象时将会按照 `@JsonAdapter`  注解中定义的类型适配器进行序列化和反序列化
@@ -204,8 +201,135 @@ public class Person {
 
 ### Jackson 的序列化
 
-对于 `java.time` 包下的时间类，Jackson 已经提供了相应的时间模块来处理这些类的序列化和反序列化操作。如果
+对于 `java.time` 包下的时间类，Jackson 已经提供了相应的时间模块来处理这些类的序列化和反序列化操作。对于一般的 Maven 项目，需要加入相关的依赖项目：
+
+```xml
+<dependency>
+    <groupId>com.fasterxml.jackson.datatype</groupId>
+    <artifactId>jackson-datatype-jsr310</artifactId>
+    <version>${jackson-version}</version>
+</dependency>
+```
+
+当使用时，注册对应的时间模块即可：
+
+```java
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+
+ObjectMapper mapper = new ObjectMapper();
+mapper.registerModule(new JavaTimeModule());
+```
+
+现在，对相关的时间属性加上 `@JsonFormat` 注解格式化时间即可：
+
+```java
+import com.fasterxml.jackson.annotation.JsonFormat;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+public class Order {
+    private int id;
+    private String orderName;
+    private String orderDesc;
+
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate orderCreatedDate;
+
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime orderCreatedDateTime;
+}
+```
+
+相关的序列化结果如下：
+
+```json
+{"id":1,"orderName":null,"orderDesc":null,"orderCreatedDate":"2022-06-24","orderCreatedDateTime":"2022-06-24 21:51:58"}
+```
+
+### Gson 的序列化
+
+Gson 并没有提供相关的时间模块组件，因此需要自定义相关的序列化和反序列化实现，以 `LocalDateTime` 的序列化和反序列化为例，可以定义相关的序列化和反序列化实现：
+
+```java
+private static class LocalDateTimeAdapter
+    implements JsonSerializer<LocalDateTime>, JsonDeserializer<LocalDateTime> {
+    // 自定义的时间格式
+    private static final DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    @Override
+    public LocalDateTime deserialize(
+        JsonElement json, Type typeOfT,
+        JsonDeserializationContext context
+    ) throws JsonParseException {
+        return LocalDateTime.parse(
+            json.getAsString(),
+            dateTimeFormatter.withZone(ZoneId.systemDefault())
+        );
+    }
+
+    @Override
+    public JsonElement serialize(
+        LocalDateTime src, Type typeOfSrc,
+        JsonSerializationContext context
+    ) {
+        return new JsonPrimitive(dateTimeFormatter.format(src));
+    }
+}
+```
+
+然后，将这个类型适配器注册到 `Gson` 中，使得其能够处理时间的序列化：
+
+``` java
+Gson gson = new GsonBuilder()
+    .registerTypeAdapter(LocalDateTime.class, new LocalDateTimeAdapter())
+    .create();
+```
+
+值得注意的一点是，Gson 是通过反射的方式来访问相关的属性的，而这一方式在 JDK 9 开始就已经被禁用了，因此在序列化时可能会看到类似下面的异常：
+
+``` text
+Exception in thread "main" java.lang.reflect.InaccessibleObjectException: Unable to make field private final int java.time.LocalDate.year accessible: module java.base does not "opens java.time" to unnamed module @2d9d4f9d
+	at java.base/java.lang.reflect.AccessibleObject.checkCanSetAccessible(AccessibleObject.java:354)
+	at java.base/java.lang.reflect.AccessibleObject.checkCanSetAccessible(AccessibleObject.java:297)
+	at java.base/java.lang.reflect.Field.checkCanSetAccessible(Field.java:178)
+	at java.base/java.lang.reflect.Field.setAccessible(Field.java:172)
+	at com.google.gson.internal.reflect.UnsafeReflectionAccessor.makeAccessible(UnsafeReflectionAccessor.java:44)
+	at com.google.gson.internal.bind.ReflectiveTypeAdapterFactory.getBoundFields(ReflectiveTypeAdapterFactory.java:159)
+	at com.google.gson.internal.bind.ReflectiveTypeAdapterFactory.create(ReflectiveTypeAdapterFactory.java:102)
+	at com.google.gson.Gson.getAdapter(Gson.java:489)
+	at com.google.gson.internal.bind.ReflectiveTypeAdapterFactory.createBoundField(ReflectiveTypeAdapterFactory.java:117)
+	at com.google.gson.internal.bind.ReflectiveTypeAdapterFactory.getBoundFields(ReflectiveTypeAdapterFactory.java:166)
+	at com.google.gson.internal.bind.ReflectiveTypeAdapterFactory.create(ReflectiveTypeAdapterFactory.java:102)
+	at com.google.gson.Gson.getAdapter(Gson.java:489)
+	at com.google.gson.Gson.toJson(Gson.java:727)
+	at com.google.gson.Gson.toJson(Gson.java:714)
+	at com.google.gson.Gson.toJson(Gson.java:669)
+	at com.google.gson.Gson.toJson(Gson.java:649)
+	at com.example.demo.config.GsonConfig.main(GsonConfig.java:85)
+```
+
+为了解决这个问题，可以在运行时添加 `--add-opens java.base/java.time=ALL-UNNAMED` 虚拟机选项（VM Options）来使得反射功能能够正常使用
+
+``` sh
+java -cp xxx --add-opens java.base/java.time=ALL-UNNAMED
+```
+
+如果是 IDEA 的话，可以在 `Edit Configuration` ——> `Modify Options  中找到 VM Options`
+
+序列化的结果类似下面所示：
+
+``` json
+{"id":1,"orderCreatedDate":{"year":2022,"month":6,"day":24},"orderCreatedDateTime":"2022-06-24 22:20:26"}
+```
+
+对于其它 `java.time` 包下的时间类，也可以使用类似的方式来定义相关的序列化行为
 
 
 
+<br />
 
+参考：
+
+<sup>[1]</sup> 
