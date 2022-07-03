@@ -332,4 +332,4 @@ java -cp xxx --add-opens java.base/java.time=ALL-UNNAMED
 
 参考：
 
-<sup>[1]</sup> 
+<sup>[1]</sup> https://iogogogo.github.io/2020/06/23/gson-java8-datetime/
