@@ -23,4 +23,12 @@ INSERT INTO employee (id, name, p_id) VALUES (4, '组长', 3);
 INSERT INTO employee (id, name, p_id) VALUES (5, '员工', 4);
 ```
 
-然而，这样的设计使得 SQL 的查询操作变得不是那么简单，如果可以
+然而，这样的设计使得 SQL 的查询操作变得不是那么简单，如果可以：
+
+``` sql
+SELECT E.id, E.name AS "Employee", M.id, M.name AS "Manager"
+FROM employee E LEFT OUTER JOIN employee M
+                                 ON E.p_id = M.id
+WHERE E.id<=3;
+```
+
