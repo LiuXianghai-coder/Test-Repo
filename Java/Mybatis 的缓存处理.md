@@ -4,7 +4,7 @@
 
 MyBatis 中存在的缓存结构如下图所示：
 
-
+![mybatis_cache_struct.png](https://s2.loli.net/2022/09/19/IHGA5zDodpu6itQ.png)
 
 ## 一级缓存
 
