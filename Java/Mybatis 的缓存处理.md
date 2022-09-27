@@ -638,8 +638,47 @@ public class TransactionalCache implements Cache {
 
 
 
-
-
-
-
 ## 自定义缓存
+
+对于 MyBatis 的一级缓存和二级缓存来讲，都存在些许的局限性：一级缓存只能在同一个 `SqlSeesion` 中共享（`STATMENT` 模式将会清除缓存，没有解决共享失效的问题）；二级缓存在多台机器上也表现地无能为力。因此，在某些特定的场景下可能需要我们使用自定义的缓存。
+
+经过上文的分析，实际上的缓存就是一个 key-value 的键值对组合对象，当涉及到分布式应用时使用 `Redis` 作为缓存是一个很好的选择。幸运的是，`Redissson` 以及提供了 `Redis` 的缓存实现，只需要将对应 `Mapper` 中默认的 `Cache` 换成 `RedissonCache` 即可：
+
+使用之前需要引入 `Redissson` 对应的依赖：
+
+``` xml
+<dependency>
+    <groupId>org.redisson</groupId>
+    <artifactId>redisson-mybatis</artifactId>
+    <version>3.17.6</version>
+</dependency>
+```
+
+替换原有 `Mapper` 中默认的 `Cache` 实现：
+
+``` xml
+<!-- 使用 RedissonCache 替换现有的二级缓存实现 -->
+<cache type="org.redisson.mybatis.RedissonCache">
+    <!-- 存活时间，即缓存对的有效时间 -->
+    <property name="timeToLive" value="10000" />
+    <!-- 最大空闲时间，超过这个时间没有被使用的缓存将会被清除 -->
+    <property name="maxIdleTime" value="5000" />
+    <!-- 缓存对的最大大小 -->
+    <property name="maxSize" value="100000" />
+
+    <!-- Redisson 配置文件 -->
+    <property name="redissonConfig" value="redisson.yaml" />
+</cache>
+```
+
+ 之后便可以像使用二级缓存一样使用这个缓存，由于 `Redis` 并不是 MyBatis 的一部分，因此它可以在多个应用实例中能够共享相同的缓存
+
+
+
+<hr />
+
+参考：
+
+<sup>[1]</sup> https://tech.meituan.com/2018/01/19/mybatis-cache.html
+
+<sup>[2]</sup> https://dzone.com/articles/caching-in-mybatis-with-redis
