@@ -63,7 +63,8 @@ Shiro 提供了许多的开箱即用的 `Realm` 来连接到安全数据源（�
 
     如上文 “概念设计” 部分提到的，`SecurityManager` 封装了大部分的功能，是 Shiro 的核心组件。它主要是一个 “伞型” 对象，用于协调其托管组组件以确保它们顺利协同工作。除此之外，`SecurityManager` 还用于管理每个应用程序用户的视图。因此它可以知道如何为每个用户执行安全操作
 
-- `Authenticator`：`org.apache.shiro.authc.Authenticator`
+    - `Authenticator`：`org.apache.shiro.authc.Authenticator`
+
 
     `Authenticator` 是负责执行和i响应用户身份验证的（登录）的组件，当一个用户尝试登录时，登录逻辑将会被 `Authenticator` 执行。
 
@@ -73,11 +74,13 @@ Shiro 提供了许多的开箱即用的 `Realm` 来连接到安全数据源（�
 
         如果超过一个 `Realm` 被配置了，那么 `AuthenticationStrategy` 将会协调这些 `Realm` 以确定身份验证成功哦你或者失败的条件（例如，如果多个 `Realm` 中有一个是成功的，但是其它的 `Realm` 都是失败的，那么本次尝试是否是成功的？必须是所有的 `Realm` 都成功？还是只需要一个成功即可？ ）
 
-- `Authorizer`：`org.apache.shiro.authz.Authorizer`
+    - `Authorizer`：`org.apache.shiro.authz.Authorizer`
+
 
     `Authorizer` 组件用于负责用户的访问权限，它是最终决定用户是否被允许做某事的机制。类似 `Authenticator`，`Authorizer` 也知道如何协调多个后端数据源来获取访问角色和权限的信息。`Authorizer` 使用这些信息来确定是否允许用户执行给定的操作
 
-- `SessionManager`：`org.apache.shiro.session.mgt.SessionManager`
+    - `SessionManager`：`org.apache.shiro.session.mgt.SessionManager`
+
 
     `SessionManager` 知道如何创建和管理用户 `Session` 的生命周期，以便为所有环境中的用户提供强大的 `Session` 体验。在所有的安全框架中，这是 Shiro 特有的一个特征，Shiro 能够在任何环境中本地管理用户会话，即使没有可用的 Web 或 EJB 容器也是如此。默认情况下，Shiro 将会使用现有的会话机制（如 Servlet Container），但是如果没有（例如在独立的应用程序或非 Web 应用程序中），它将使用内置的企业会话管理来提供相同的编程体验
 
@@ -87,14 +90,16 @@ Shiro 提供了许多的开箱即用的 `Realm` 来连接到安全数据源（�
 
         `SessionDAO` 代表 `SessionManager` 提供了 `Session` 持久化的操作，这允许将任何数据存储插入到会话管理基础架构中。
 
-- `CacheManager`：`org.apache.shiro.cache.CacheManager`
+    - `CacheManager`：`org.apache.shiro.cache.CacheManager`
+
 
     `CacheManager` 用于创建和管理其它 Shiro 组件使用的 `Cache` 实例的生命周期。由于 Shiro 可以访问许多后端数据源进行身份验证、授权和会话管理，所以缓存一直是框架中的一流架构特性，可以在使用这些数据源的同时提高性能。任何现代的开源或或企业缓存产品都可以插入 Shiro 的缓存中以提高快速高效的用户体验
 
-- `Cryptography`：`org.apache.shiro.crypto.*`
+    - `Cryptography`：`org.apache.shiro.crypto.*`
+
 
     加密是企业安全框架的补充。Shiro 加密包下包含了易于使用和理解的加密密码、消息摘要和不同编解码器的实现。这个加密包中的所有类都经过精心设计，非常易于使用和理解。
 
-- `Realm`：`org.apache.shiro.realm.Realm`
+    - `Realm`：`org.apache.shiro.realm.Realm`
 
     如 “概念设计” 中提到的，`Realm` 是应用程序的安全数据和 Shiro 之间进行连接的桥梁

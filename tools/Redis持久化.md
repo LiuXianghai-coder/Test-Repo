@@ -29,10 +29,6 @@ struct saveparam {
 };
 ```
 
-
-
-
-
 ## `AOF`
 
 > `AOF`：Append Only File。通过记录 Redis 命令来记录数据库的变更
@@ -64,7 +60,7 @@ struct redisServer {
 
    具体流程：
 
-![1.png](https://i.loli.net/2021/09/28/oDApTJi2kH6zfVR.png)
+<img src="https://i.loli.net/2021/09/28/oDApTJi2kH6zfVR.png" alt="1.png" style="zoom:80%;" />
 
 - `appendfsync always`
 
@@ -94,7 +90,7 @@ struct redisServer {
 
    具体流程：
 
-   ![1.png](https://i.loli.net/2021/09/28/xZCzTmLHAblv4eu.png)
+   <img src="https://i.loli.net/2021/09/28/xZCzTmLHAblv4eu.png" alt="1.png" style="zoom:80%;" />
 
 ### 操作系统层面写入与同步：
 
