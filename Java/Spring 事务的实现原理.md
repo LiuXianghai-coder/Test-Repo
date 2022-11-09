@@ -277,115 +277,33 @@ public TransactionAttribute parseTransactionAnnotation(AnnotatedElement element)
 
 ### 代理对象的实例化
 
-回想一下 Spring 中 Bean 的生命周期，在实际创建 Bean 之前，会给予一次机会是的 Bean 能够走代理，具体的源码位于 `org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory` 的 `createBean` 方法中，具体的源码如下：
+回想一下 Spring 中 Bean 的生命周期，在较低版本的 Spring 中，为了处理循环依赖，对于代理对象的处理在 `org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory` 的 `getEarlyBeanReference` 方法处理对应的依赖项，处理依赖的同时也会创建对应的代理对象实例（对非依赖项将会在初始化 Bean 时对处理逻辑进行代理，但是逻辑是相同的），具体的源码如下：
 
 ``` java
-protected Object createBean(String beanName, RootBeanDefinition mbd, @Nullable Object[] args)
-    throws BeanCreationException {
-    //  省略部分不太重要的源代码。。。。
-
-    // 如果需要走代理，那么将会创建对应的代理类
-    try {
-        // Give BeanPostProcessors a chance to return a proxy instead of the target bean instance.
-        Object bean = resolveBeforeInstantiation(beanName, mbdToUse);
-        if (bean != null) {
-            return bean;
+protected Object getEarlyBeanReference(String beanName, RootBeanDefinition mbd, Object bean) {
+    Object exposedObject = bean;
+    if (!mbd.isSynthetic() && hasInstantiationAwareBeanPostProcessors()) {
+        for (SmartInstantiationAwareBeanPostProcessor bp : getBeanPostProcessorCache().smartInstantiationAware) {
+            exposedObject = bp.getEarlyBeanReference(exposedObject, beanName);
         }
     }
-    catch (Throwable ex) {
-        throw new BeanCreationException(mbdToUse.getResourceDescription(), beanName,
-                                        "BeanPostProcessor before instantiation of bean failed", ex);
-    }
-
-    // 如果不走代理的话，则会走下面的正常实例化逻辑
-    try {
-        Object beanInstance = doCreateBean(beanName, mbdToUse, args);
-        if (logger.isTraceEnabled()) {
-            logger.trace("Finished creating instance of bean '" + beanName + "'");
-        }
-        return beanInstance;
-    }
-    catch (BeanCreationException | ImplicitlyAppearedSingletonException ex) {
-        // A previously detected exception with proper bean creation context already,
-        // or illegal singleton state to be communicated up to DefaultSingletonBeanRegistry.
-        throw ex;
-    }
-    catch (Throwable ex) {
-        throw new BeanCreationException(
-            mbdToUse.getResourceDescription(), beanName, "Unexpected exception during bean creation", ex);
-    }
+    return exposedObject;
 }
 ```
 
- `resolveBeforeInstantiation`  方法用于创建代理类，具体对应的源码如下：
+实际上创建代理的 `SmartInstantiationAwareBeanPostProcessor`  为 `AbstractAutoProxyCreator`，对应的逻辑如下：
 
 ``` java
-protected Object resolveBeforeInstantiation(String beanName, RootBeanDefinition mbd) {
-    Object bean = null;
-    if (!Boolean.FALSE.equals(mbd.beforeInstantiationResolved)) {
-        // Make sure bean class is actually resolved at this point.
-        if (!mbd.isSynthetic() && hasInstantiationAwareBeanPostProcessors()) {
-            Class<?> targetType = determineTargetType(beanName, mbd);
-            if (targetType != null) {
-                // 前置处理
-                bean = applyBeanPostProcessorsBeforeInstantiation(targetType, beanName);
-                if (bean != null) {
-                    // 后置处理
-                    bean = applyBeanPostProcessorsAfterInitialization(bean, beanName);
-                }
-            }
-        }
-        mbd.beforeInstantiationResolved = (bean != null);
-    }
-    return bean;
-}
-```
-
-对于一般的 Bean 来讲，代理对象的创建逻辑在 `org.springframework.aop.framework.autoproxy.AbstractAutoProxyCreator` 抽象类中有相关的定义，对应的逻辑如下：
-
-``` java
-// 前置处理
-public Object postProcessBeforeInstantiation(Class<?> beanClass, String beanName) {
-    // 省略部分不太重要的代码。。。。
-    TargetSource targetSource = getCustomTargetSource(beanClass, beanName);
-    if (targetSource != null) {
-        if (StringUtils.hasLength(beanName)) {
-            this.targetSourcedBeans.add(beanName);
-        }
-        Object[] specificInterceptors = getAdvicesAndAdvisorsForBean(beanClass, beanName, targetSource);
-        Object proxy = createProxy(beanClass, beanName, specificInterceptors, targetSource);
-        this.proxyTypes.put(cacheKey, proxy.getClass());
-        return proxy;
-    }
-
-    return null;
+public Object getEarlyBeanReference(Object bean, String beanName) {
+    Object cacheKey = getCacheKey(bean.getClass(), beanName);
+    this.earlyProxyReferences.put(cacheKey, bean);
+    return wrapIfNecessary(bean, beanName, cacheKey); // 对目标类进行封装，得到实际的代理对象
 }
 
-// 后置处理
-public Object postProcessAfterInitialization(@Nullable Object bean, String beanName) {
-    if (bean != null) {
-        Object cacheKey = getCacheKey(bean.getClass(), beanName);
-        if (this.earlyProxyReferences.remove(cacheKey) != bean) {
-            return wrapIfNecessary(bean, beanName, cacheKey);
-        }
-    }
-    return bean;
-}
-
-// wrapIfNecessary 方法位于同一类中，提供相关的后置处理逻辑
 protected Object wrapIfNecessary(Object bean, String beanName, Object cacheKey) {
-    if (StringUtils.hasLength(beanName) && this.targetSourcedBeans.contains(beanName)) {
-        return bean;
-    }
-    if (Boolean.FALSE.equals(this.advisedBeans.get(cacheKey))) {
-        return bean;
-    }
-    if (isInfrastructureClass(bean.getClass()) || shouldSkip(bean.getClass(), beanName)) {
-        this.advisedBeans.put(cacheKey, Boolean.FALSE);
-        return bean;
-    }
+    // 省略部分代码
 
-    // Create proxy if we have advice.
+    // 根据当前对象的类型，检查能够适应到的拦截方法，从而创建对应的代理对象
     Object[] specificInterceptors = getAdvicesAndAdvisorsForBean(bean.getClass(), beanName, null);
     if (specificInterceptors != DO_NOT_PROXY) {
         this.advisedBeans.put(cacheKey, Boolean.TRUE);
