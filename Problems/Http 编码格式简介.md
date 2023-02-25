@@ -60,6 +60,53 @@ GET 请求一般不会携带数据体部分，因此主要的处理就是请求�
 
 如果没有在 `Content-Type` 中指定编码格式，那么服务端应当按照 `ISO-8859-1` 的编码格式对数据体参数进行编码处理。但是这种情况有个例外，就是当 `POST` 请求的类型为 ``application/x-www-form-urlencoded`（即表单提交）的情况下，服务端应当按照 `US-ASCII` 的格式对数据体部分进行对应的编码处理
 
+## Tomcat 对编码格式的处理
+
+### 针对 GET 请求的编码处理
+
+按照前文提到的规范，如果没有指定对 URL 的编码，那么将默认使用 `ISO-8859-1` 的编码格式对 URL 进行解码（包括请求参数等 '%' 后接着的部分），对于 `Tomcat` 服务器来讲，可以在对应的 `server.xml` 配置文件中配置 `URLEncoding` 来指定对应的 URL 编码格式，如下所示：
+
+``` xml
+<Connector port="8090" URIEncoding="UTF-8"/>
+```
+
+对于 Spring Boot 的项目来讲，由于它已经默认内嵌了 `Tomcat` 作为默认的 web 服务器，并且默认 URL 的编码格式为 `UTF-8`，如果希望改变对应的编码格式，可以在 `application.yml` 配置文件中做如下的配置：
+
+``` yaml
+server:
+  tomcat:
+    uri-encoding: UTF-8 # 设置 Tomcat 的 URL 编码格式为 UTF-8
+```
+
+### 针对 POST 请求的编码处理
+
+对于 POST 请求来讲，与 GET 请求的最大区别在于它一般会包含一个数据主体部分，其余部分的编码处理和 GET 请求一致。对于数据主体部分的编码，一般由发送请求的客户端在头部信息中指定编码格式。如果发送请求的客户端没有指定编码格式，那么将会默认使用 `US-ASCII` 的格式处理数据主体的内容
+
+除此之外，`Servlet` 规范要求将 `application/x-www-form-urlencoded` 的  `%` 编码格式在默认情况下需要转换为 `ISO-8859-1` 的格式，这与现代的浏览器默认使用 `UTF-8` 的编码格式不兼容。然而，`Servlet` 规范要求 `Servlet` 容器对于 `application/x-www-form-urlencoded` 编码格式的 `%` 序列能够转换为任意配置的编码格式，因此，可以通过将请求字符编码设置为 `UTF-8` 格式来实现对 `x-www-form-urlencoded` 格式的编码处理，为了达到这一目的，可以通过添加对应的 `Filter` 来实现将数据主体的 `%` 编码转换为对应的 `UTF-8` 编码的字符：
+
+``` java
+import org.springframework.stereotype.Component;
+
+import javax.servlet.*;
+import java.io.IOException;
+
+/**
+ * @author lxh
+ */
+@Component
+public class BodyCharsetFilter implements Filter {
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response,
+                         FilterChain chain) throws IOException, ServletException {
+        request.setCharacterEncoding("UTF-8"); // 设置数据主体的编码格式为 UTF-8（针对 x-www-form-urlencoded 默认格式）
+        chain.doFilter(request, response); // 过滤链的后续处理
+    }
+}
+```
+
+
+
 
 
 <hr />
