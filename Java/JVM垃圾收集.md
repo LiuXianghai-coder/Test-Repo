@@ -141,7 +141,7 @@ Serial 收集器的老年代版本，主要的用途：一是为了在 JDK 5以�
 
 #### Parallel Scavenge
 
-`Parallel Old` 收集器 `Parallel Scavenge` 收集器的老年代版本，支持多线程并发执行，基于 **标记-整理** 算法实现。
+`Parallel Old` 收集器是 `Parallel Scavenge` 收集器的老年代版本，支持多线程并发执行，基于 **标记-整理** 算法实现。
 
 具体执行流程如下所示（新生代采用 `Parallel Scavenge` 收集器，老生代采用 `Parallel Scavenge` 收集器）：
 
@@ -331,7 +331,7 @@ int i =  obj.FieldB  //无需加入屏障，因为不是对象引用
 
 具体流程如下图所示：
 
-![JVM.png](https://i.loli.net/2021/10/02/CEFfPRKz4AH6qJT.png)
+![ZGC.png](https://i.loli.net/2021/10/30/VWQIyzbNP6YJrq3.png)
 
 参考：
 
