@@ -8,16 +8,14 @@ Kafka 是一款分布式消息发布和订阅系统，最初的目的是作为�
 
 相关的组件介绍如下表所示：
 
-| 组件           | 解释                                                         |
-| -------------- | ------------------------------------------------------------ |
-| Broker         | 实际 Kafka 存储消息的部分                                    |
-| Topic          | Kafka 通过 Topic 来对消息进行归类，发布到 Kafka 的每条消息都<br />需要指定一个 Topic，Topic 是一个逻辑上的概念，没有物理结构 |
-| Producer       | 向 Kafka 发送消息的角色                                      |
-| Consumer       | 从 Kafka 对应的主题中获取消息的角色                          |
+| 组件             | 解释                                                                                                         |
+| -------------- | ---------------------------------------------------------------------------------------------------------- |
+| Broker         | 实际 Kafka 存储消息的部分                                                                                           |
+| Topic          | Kafka 通过 Topic 来对消息进行归类，发布到 Kafka 的每条消息都<br />需要指定一个 Topic，Topic 是一个逻辑上的概念，没有物理结构                          |
+| Producer       | 向 Kafka 发送消息的角色                                                                                            |
+| Consumer       | 从 Kafka 对应的主题中获取消息的角色                                                                                      |
 | Consumer Group | 每个 Consumer 都只会属于一个 Consumer Group，一个消息可以被多个 <br />Consumer Group 消费，但是只能被 Consumer Group 中的一个 Consumer 消费 |
-| Partition      | 物理上的概念，将 Topic 上的数据拆分到多个 Partition，每个 Partition <br />内的消息都是有序的 |
-
-
+| Partition      | 物理上的概念，将 Topic 上的数据拆分到多个 Partition，每个 Partition <br />内的消息都是有序的                                            |
 
 <br />
 
@@ -38,8 +36,6 @@ ke
 如果想要直接点的，可以参考我的：https://www.cnblogs.com/FatalFlower/p/15747105.html；如果想要搭建集群，可以参考：https://www.cnblogs.com/ysocean/p/9860529.html
 
 这里为了简单起见，假设 Zookeeper 是通过单节点的方式启动的
-
-
 
 <br />
 
@@ -126,8 +122,6 @@ nohup ./bin/kafka-server-start.sh config/server.properties &
 
 <br />
 
-
-
 ## 基本使用
 
 具体的使用可以参考：https://kafka.apache.org/quickstart，下文的所有目录都基于解压后的 Kafka 所在的主目录，且是在 Linux 类系统上执行的脚本文件
@@ -157,8 +151,6 @@ nohup ./bin/kafka-server-start.sh config/server.properties &
 
 <img src="https://s6.jpg.cm/2021/12/31/LteQc2.png" style="60%">
 
-<br />
-
 ### 发送消息
 
 使用以下脚本进入发送消息的控制台：
@@ -173,88 +165,84 @@ nohup ./bin/kafka-server-start.sh config/server.properties &
 
 每一行都会被看做独立的消息发送到主题中，因此现在如果消费者从头开始消费的话，应该能够收到五条消息
 
-<br />
-
 ### 接收消息
 
 - 单个消费者消费
-
+  
     使用以下脚本即可从对应的主题从头开始消费消息：
-
-    ```bash
-    # 使用 --from-brginning 选项表示从该 Topic 的开始位置消费消息，如果没有指定这个选项的话
-    # 将只接收当启动 Consumer 之后的发送的消息
-    ./bin/kafka-console-consumer.sh --from-beginning --topic order --bootstrap-server 127.0.0.1:9092
-    ```
-
+  
+  ```bash
+  # 使用 --from-brginning 选项表示从该 Topic 的开始位置消费消息，如果没有指定这个选项的话
+  # 将只接收当启动 Consumer 之后的发送的消息
+  ./bin/kafka-console-consumer.sh --from-beginning --topic order --bootstrap-server 127.0.0.1:9092
+  ```
+  
     具体输出如下所示：
-
-    <img src="https://s6.jpg.cm/2021/12/31/Lte8hO.png" style="60%">
-
+  
+  <img src="https://s6.jpg.cm/2021/12/31/Lte8hO.png" style="60%">
+  
     可以看到，确实是收到了之前发送的五条消息
 
 - 多个消费者消费消息
-
+  
     首先，创建两个消费组分别为 `xhliu-group1` 和 `xhliu-group1`，如下面的命令所示：
-
-    ```bash
-    #  在一个终端中执行以下的命令，使用 --consumer-property 指定消费者所属的消费组
-    ./bin/kafka-console-consumer.sh --topic order --bootstrap-server 127.0.0.1:9092 --consumer-property group.id=xhliu-group1
-    
-    # 在另一个新的终端中执行下面的命令，将当前的消费者放入 xhliu-group2 的消费组中
-    ./bin/kafka-console-consumer.sh --topic order --bootstrap-server 127.0.0.1:9092 --consumer-property group.id=xhliu-group2
-    ```
-
-    注意，由于消费者是按照组的方式来划分的，因此不同的消费组能够消费相同的消息；从单个的消费组的角度来讲，每个消费组中在同一时刻只能有一个消费者去消费主题中的消息，这点要特别注意
+  
+  ```bash
+  #  在一个终端中执行以下的命令，使用 --consumer-property 指定消费者所属的消费组
+  ./bin/kafka-console-consumer.sh --topic order --bootstrap-server 127.0.0.1:9092 --consumer-property group.id=xhliu-group1
+  
+  # 在另一个新的终端中执行下面的命令，将当前的消费者放入 xhliu-group2 的消费组中
+  ./bin/kafka-console-consumer.sh --topic order --bootstrap-server 127.0.0.1:9092 --consumer-property group.id=xhliu-group2
+  ```
+  
+    注意，由于消费者是按照组的方式来划分的，因此不同的消费组能够消费相同的消息；从单个的消费组的角度来讲，每个消费组在同一时刻只能有一个消费者去消费主题中的消息，这点要特别注意
 
 - 查看消费组的信息
-
+  
     执行以下的脚本文件即可查看对应的 Broker 下存在的消费组列表
-
-    ```bash
-    # 添加 --list 选项表示列出当前 Broker 下的所有消费组
-    ./bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 --list
-    ```
-
+  
+  ```bash
+  # 添加 --list 选项表示列出当前 Broker 下的所有消费组
+  ./bin/kafka-consumer-groups.sh --bootstrap-server 127.0.0.1:9092 --list
+  ```
+  
     如果想要查看对应的消费组的具体细节信息，可以执行以下的脚本：
-
-    ```bash
-    # 添加 --group 选项查看对应的消费组信息，--describe 表示显示详细信息
-    ./bin/kafka-consumer-groups.sh --group xhliu-group1 --bootstrap-server 127.0.0.1:9092 --describe 
-    ```
-
-    ![2021-12-31 23-14-57 的屏幕截图.png](https://s2.loli.net/2021/12/31/qxPBMaoIOyVz8mY.png)
-
+  
+  ```bash
+  # 添加 --group 选项查看对应的消费组信息，--describe 表示显示详细信息
+  ./bin/kafka-consumer-groups.sh --group xhliu-group1 --bootstrap-server 127.0.0.1:9092 --describe 
+  ```
+  
+  ![2021-12-31 23-14-57 的屏幕截图.png](https://s2.loli.net/2021/12/31/qxPBMaoIOyVz8mY.png)
+  
     其中，比较重要的几个参数为 `CURRENT-OFFSET`（表示消费组已经消费的消息的偏移量）、`LOG-END-OFFSET`（主题对应分区消息的结束偏移量）、`LAG`（表示消费组未消费的消息的数量）
 
 - 删除指定主题的消息
-
+  
     首先，需要创建一个删除消息的 `json` 文件，将这个文件命名为 `delete-order.json`， 具体如下所示：
-
-    ```json
-    {
-        "partitions": [ // 按照此分区列表的信息进行删除
-            {
-                "topic": "order", // 待删除的主题的名称
-                "partition": 0, // 分区编号
-                "offset": -1 // 删除的区间，-1 表示删除所有的消息
-            }
-            // 如果有多个分区，则需要添加多个 partition 对象
-        ],
-        "version": 1
-    }
-    ```
-
+  
+  ```json
+  {
+      "partitions": [ // 按照此分区列表的信息进行删除
+          {
+              "topic": "order", // 待删除的主题的名称
+              "partition": 0, // 分区编号
+              "offset": -1 // 删除的区间，-1 表示删除所有的消息
+          }
+          // 如果有多个分区，则需要添加多个 partition 对象
+      ],
+      "version": 1
+  }
+  ```
+  
     然后执行如下的脚本：
-
-    ```bash
-    # 按照 --offset-json-file 指定的 json 文件进行删除
-    ./bin/kafka-delete-records.sh --bootstrap-server 127.0.0.1:9092 --offset-json-file ./delete-order.json
-    ```
-
+  
+  ```bash
+  # 按照 --offset-json-file 指定的 json 文件进行删除
+  ./bin/kafka-delete-records.sh --bootstrap-server 127.0.0.1:9092 --offset-json-file ./delete-order.json
+  ```
+  
     即可完成对 order 主题中分区编号为 0 的数据进行清除
-
-<br />
 
 ## Java 客户端整合
 
@@ -267,8 +255,6 @@ nohup ./bin/kafka-server-start.sh config/server.properties &
     <version>${kafka.version}</version> <!-- 选择对应的 kafka 的版本 -->
 </dependency>
 ```
-
-<br />
 
 ### 生产者端
 
@@ -301,7 +287,7 @@ public Properties producerProp() {
          */
     properties.put(BUFFER_MEMORY_CONFIG, 32*1024*1024);  // 设置发送消息的本地缓冲区大小，这里设置为 32 MB
     properties.put(BATCH_SIZE_CONFIG, 16*1024);  // 设置批量发送消息的大小，这里设置为 16 KB
-    
+
     /*
             batch 的等待时间，默认值为 0, 表示消息必须被立即发送，这里设置为 10 表示消息发送之后的 10 ms 内，
             如果 Batch 已经满了，那么这个消息就会随着 Bathh 一起发送出去
@@ -322,81 +308,75 @@ public Properties producerProp() {
 配置完成之后，就可以通过 Java 来向 Kafka 来发送消息了，Kafka 对与 Java 的客户端接口提供了两种发送消息的方式：以同步阻塞的方式发送消息和以异步非阻塞的方式来发送消息，
 
 - 以同步阻塞的方式发送消息：
-
-    ```java
-    static final String TOPIC_NAME = "xhliu";
-    static final Integer PARTITION_TWO = 1;
-    static final Gson gson = new GsonBuilder().create();
-    
-    void syncSend() {
-        Properties producerProp = producerProp(); // 加载配置属性
-        Producer<String, String> producer = new KafkaProducer<>(producerProp);
-        Message message;
-    
-        for (int i = 0; i < 5; ++i) {
-            // 具体的消息实体
-            message = new Message(i, "BLOCK_MSG_" + i);
-            
-            // 生产者发送消息的记录对象
-            ProducerRecord<String, String> record = new ProducerRecord<>(
-                TOPIC_NAME, PARTITION_TWO,
-                String.valueOf(message.getId()), gson.toJson(message)
-            );
-    
-            try {
-                // 发送消息，得到一个 Future，关于这个类具体可以参考 《Java 并发编程实战》
-                Future<RecordMetadata> future = producer.send(record);
-                // Future 的 get() 方法将会阻塞当前的线程
-                RecordMetadata metadata = future.get();
-                // 打印发送之后的结果。。。。。
-                log.info("[topic]={}, [position]={}, [offset]={}", metadata.topic(),
-                         metadata.partition(), metadata.offset());
-            } catch (ExecutionException | InterruptedException e) {
-                e.printStackTrace();
-            }
-        }
-    }
-    ```
-
-    
+  
+  ```java
+  static final String TOPIC_NAME = "xhliu";
+  static final Integer PARTITION_TWO = 1;
+  static final Gson gson = new GsonBuilder().create();
+  
+  void syncSend() {
+      Properties producerProp = producerProp(); // 加载配置属性
+      Producer<String, String> producer = new KafkaProducer<>(producerProp);
+      Message message;
+  
+      for (int i = 0; i < 5; ++i) {
+          // 具体的消息实体
+          message = new Message(i, "BLOCK_MSG_" + i);
+  
+          // 生产者发送消息的记录对象
+          ProducerRecord<String, String> record = new ProducerRecord<>(
+              TOPIC_NAME, PARTITION_TWO,
+              String.valueOf(message.getId()), gson.toJson(message)
+          );
+  
+          try {
+              // 发送消息，得到一个 Future，关于这个类具体可以参考 《Java 并发编程实战》
+              Future<RecordMetadata> future = producer.send(record);
+              // Future 的 get() 方法将会阻塞当前的线程
+              RecordMetadata metadata = future.get();
+              // 打印发送之后的结果。。。。。
+              log.info("[topic]={}, [position]={}, [offset]={}", metadata.topic(),
+                       metadata.partition(), metadata.offset());
+          } catch (ExecutionException | InterruptedException e) {
+              e.printStackTrace();
+          }
+      }
+  }
+  ```
 
 - 以异步的方式发送消息
-
+  
     以异步的方式发送消息与同步的方式类似，最大的不同是通过异步的方式发送是通过哦注册回调函数来实现的，不会阻塞当前的线程，具体如下所示：
-
-    ```java
-    void asyncSend() throws InterruptedException {
-        Properties producerProp = producerProp(); // 加载配置属性
-        Producer<String, String> producer = new KafkaProducer<>(producerProp);
-        Message message;
-    
-        for (int i = 0; i < 5; ++i) {
-            message = new Message(i, "NO_BLOCK_MSG_" + i);
-    
-            ProducerRecord<String, String> record = new ProducerRecord<>(
-                TOPIC_NAME, PARTITION_TWO,
-                String.valueOf(message.getId()), gson.toJson(message)
-            );
-            
-            // 注册回调函数来处理发送之后的结果，避免阻塞当前的线程
-            producer.send(record, (metadata, e) -> {
-                if (e != null) {
-                    log.error("异步发送消息失败，", e);
-                    return;
-                }
-    
-                if (metadata != null) {
-                    log.info("[topic]={}, [position]={}, [offset]={}",
-                             metadata.topic(), metadata.partition(), metadata.offset());
-                }
-            });
-        }
-    }
-    ```
-
-    
-
-<br />
+  
+  ```java
+  void asyncSend() throws InterruptedException {
+      Properties producerProp = producerProp(); // 加载配置属性
+      Producer<String, String> producer = new KafkaProducer<>(producerProp);
+      Message message;
+  
+      for (int i = 0; i < 5; ++i) {
+          message = new Message(i, "NO_BLOCK_MSG_" + i);
+  
+          ProducerRecord<String, String> record = new ProducerRecord<>(
+              TOPIC_NAME, PARTITION_TWO,
+              String.valueOf(message.getId()), gson.toJson(message)
+          );
+  
+          // 注册回调函数来处理发送之后的结果，避免阻塞当前的线程
+          producer.send(record, (metadata, e) -> {
+              if (e != null) {
+                  log.error("异步发送消息失败，", e);
+                  return;
+              }
+  
+              if (metadata != null) {
+                  log.info("[topic]={}, [position]={}, [offset]={}",
+                           metadata.topic(), metadata.partition(), metadata.offset());
+              }
+          });
+      }
+  }
+  ```
 
 ### 消费者端
 
@@ -458,95 +438,91 @@ public Properties consumerProp() {
 对于消费端来讲，由于 Kafka 的消费模型是通过轮询的方式来实现的，因此就不存在所谓的同步和异步获取消息的方式。但是在消费完成消息之后，消费者需要发送一个 Offset 到对应的 Topic，表示这个消息已经被当前的消费者消费了，消费组中下一个消费消息的消费者直接从这这个位置的偏移量开始消费，这种消费之后提交 Offset 有两种方式：自动提交和手动提交
 
 - 自动提交的使用示例如下所示：
-
-    ```java
-    void autoCommitOffset() throws InterruptedException {
-        Properties properties = consumerProp();
-    
-        // 设置是否是自动提交，默认为 true
-        properties.put(ENABLE_AUTO_COMMIT_CONFIG, "true");
-        //  自动提交 offset 的时间间隔
-        properties.put(AUTO_COMMIT_INTERVAL_MS_CONFIG, "1000");
-    
-        Consumer<String, String> consumer = new KafkaConsumer<>(properties);
-        consumer.subscribe(Lists.newArrayList(TOPIC_NAME));
-    
-        // 指定当前的消费者在 TOPIC_NAME 上的 PARTITION_ONE 的分区上进行消费
-        //        consumer.assign(Lists.newArrayList(new TopicPartition(TOPIC_NAME, PARTITION_ONE)));
-        // 指定 consumer 从头开始消费
-        //        consumer.seekToBeginning(Lists.newArrayList(new TopicPartition(TOPIC_NAME, PARTITION_ONE)));
-        // 指定分区和 offset 进行消费
-        //        consumer.seek(new TopicPartition(TOPIC_NAME, PARTITION_ONE), 10);
-    
-        ConsumerRecords<String, String> records;
-        while (true) {
-            /*
-                    通过长轮询的方式拉取消息
-                 */
-            records = consumer.poll(Duration.ofMillis(1000));
-    
-            for (ConsumerRecord<String, String> record : records) {
-                log.info("[topic]={}, [position]={}, [offset]={}, [key]={}, [value]={}",
-                         record.topic(),record.partition(), record.offset(), record.key(), record.value());
-            }
-    
-            Thread.sleep(10000);
-        }
-    }
-    ```
-
+  
+  ```java
+  void autoCommitOffset() throws InterruptedException {
+      Properties properties = consumerProp();
+  
+      // 设置是否是自动提交，默认为 true
+      properties.put(ENABLE_AUTO_COMMIT_CONFIG, "true");
+      //  自动提交 offset 的时间间隔
+      properties.put(AUTO_COMMIT_INTERVAL_MS_CONFIG, "1000");
+  
+      Consumer<String, String> consumer = new KafkaConsumer<>(properties);
+      consumer.subscribe(Lists.newArrayList(TOPIC_NAME));
+  
+      // 指定当前的消费者在 TOPIC_NAME 上的 PARTITION_ONE 的分区上进行消费
+      //        consumer.assign(Lists.newArrayList(new TopicPartition(TOPIC_NAME, PARTITION_ONE)));
+      // 指定 consumer 从头开始消费
+      //        consumer.seekToBeginning(Lists.newArrayList(new TopicPartition(TOPIC_NAME, PARTITION_ONE)));
+      // 指定分区和 offset 进行消费
+      //        consumer.seek(new TopicPartition(TOPIC_NAME, PARTITION_ONE), 10);
+  
+      ConsumerRecords<String, String> records;
+      while (true) {
+          /*
+                  通过长轮询的方式拉取消息
+               */
+          records = consumer.poll(Duration.ofMillis(1000));
+  
+          for (ConsumerRecord<String, String> record : records) {
+              log.info("[topic]={}, [position]={}, [offset]={}, [key]={}, [value]={}",
+                       record.topic(),record.partition(), record.offset(), record.key(), record.value());
+          }
+  
+          Thread.sleep(10000);
+      }
+  }
+  ```
+  
     使用自动提交可能会导致消息的丢失，这是因为在消费者在消费消息的过程中，可能由于系统崩溃等原因，使得消费者未能完全消费这条消息，但是自动提交 Offset 的方式又将这条消息标记为了 “已消费”，Kafka 不支持重复消费，因此此时这个消费组就无法再消费这条已经丢失的消息
 
 - 手动提交的示例如下所示：
-
-    ```java
-    void manualCommitOffset() throws InterruptedException {
-        Properties properties = (Properties) consumerProp.clone();
-    
-        // 设计提交 Offset 为手动提交，只需要将允许自动提交设置为 false 即可
-        properties.put(ENABLE_AUTO_COMMIT_CONFIG, "false");
-        Consumer<String, String> consumer = new KafkaConsumer<>(properties);
-        consumer.subscribe(Lists.newArrayList(TOPIC_NAME));
-    
-        ConsumerRecords<String, String> records;
-        while (true) {
-            /*
-                    通过长轮询的方式拉取消息
-                 */
-            records = consumer.poll(Duration.ofMillis(1000));
-    
-            for (ConsumerRecord<String, String> record : records) {
-                log.info("[topic]={}, [position]={}, [offset]={}, [key]={}, [value]={}",
-                         record.topic(),record.partition(), record.offset(), record.key(), record.value());
-            }
-    
-            if (records.count() > 0) {
-                /*
-                        手动同步提交 offset，当前线程会阻塞，知道 offset 提交成功
-                     */
-                consumer.commitSync();
-    
-                /*
-                        通过异步的方式来完成 offset 的提交
-                     */
-                /*
-                    consumer.commitAsync((offsets, e) -> {
-                        log.error("异常 offset={}", gson.toJson(offsets));
-                        if (e != null) {
-                            log.error("提交 offset 发生异常，", e);
-                        }
-                    });
-                    */
-            }
-    
-            Thread.sleep(2000);
-        }
-    }
-    ```
-
-    
-
-<br />
+  
+  ```java
+  void manualCommitOffset() throws InterruptedException {
+      Properties properties = (Properties) consumerProp.clone();
+  
+      // 设计提交 Offset 为手动提交，只需要将允许自动提交设置为 false 即可
+      properties.put(ENABLE_AUTO_COMMIT_CONFIG, "false");
+      Consumer<String, String> consumer = new KafkaConsumer<>(properties);
+      consumer.subscribe(Lists.newArrayList(TOPIC_NAME));
+  
+      ConsumerRecords<String, String> records;
+      while (true) {
+          /*
+                  通过长轮询的方式拉取消息
+               */
+          records = consumer.poll(Duration.ofMillis(1000));
+  
+          for (ConsumerRecord<String, String> record : records) {
+              log.info("[topic]={}, [position]={}, [offset]={}, [key]={}, [value]={}",
+                       record.topic(),record.partition(), record.offset(), record.key(), record.value());
+          }
+  
+          if (records.count() > 0) {
+              /*
+                      手动同步提交 offset，当前线程会阻塞，知道 offset 提交成功
+                   */
+              consumer.commitSync();
+  
+              /*
+                      通过异步的方式来完成 offset 的提交
+                   */
+              /*
+                  consumer.commitAsync((offsets, e) -> {
+                      log.error("异常 offset={}", gson.toJson(offsets));
+                      if (e != null) {
+                          log.error("提交 offset 发生异常，", e);
+                      }
+                  });
+                  */
+          }
+  
+          Thread.sleep(2000);
+      }
+  }
+  ```
 
 ## 与 Spring Boot 的整合
 
@@ -606,8 +582,6 @@ spring:
       ack-mode: record
 ```
 
-<br />
-
 首先，定义消息对象实例对象类，如下所示：
 
 ```java
@@ -629,80 +603,72 @@ public class Message {
 }
 ```
 
-
-
-
-
 ### 生产者端
 
 直接使用 `kafkaTemplate` 来发送消息即可
 
 - 以阻塞的方式发送消息
-
-    ```java
-    @Resource
-    private KafkaTemplate<String, Message> kafkaTemplate;
-    
-    // Spring 会自动引入 Jackson，因此在这里直接注入即可
-    @Resource
-    private ObjectMapper mapper;
-    
-    @GetMapping(path = "blockProducer")
-    public String blockProducer() throws Throwable {
-        List<Message> list = new ArrayList<>();
-        for (int i = 0; i < 5; i++) {
-            Message message = new Message(i, "BLOCKING_MSG_SPRINGBOOT_" + i);
-            ListenableFuture<SendResult<String, Message>> future =
-                kafkaTemplate.send(TOPIC_NAME, PARTITION_ONE, String.valueOf(message.getId()), message);
-    
-            SendResult<String, Message> result = future.get();
-            RecordMetadata metadata = result.getRecordMetadata();
-            log.info("---BLOCKING_MSG_SPRINGBOOT--- [topic]={}, [partition]={}, [offset]={}",
-                     metadata.topic(), metadata.partition(), metadata.offset());
-            list.add(message);
-        }
-    
-        return mapper.writerWithDefaultPrettyPrinter()
-            .writeValueAsString(list);
-    }
-    ```
-
-    
+  
+  ```java
+  @Resource
+  private KafkaTemplate<String, Message> kafkaTemplate;
+  
+  // Spring 会自动引入 Jackson，因此在这里直接注入即可
+  @Resource
+  private ObjectMapper mapper;
+  
+  @GetMapping(path = "blockProducer")
+  public String blockProducer() throws Throwable {
+      List<Message> list = new ArrayList<>();
+      for (int i = 0; i < 5; i++) {
+          Message message = new Message(i, "BLOCKING_MSG_SPRINGBOOT_" + i);
+          ListenableFuture<SendResult<String, Message>> future =
+              kafkaTemplate.send(TOPIC_NAME, PARTITION_ONE, String.valueOf(message.getId()), message);
+  
+          SendResult<String, Message> result = future.get();
+          RecordMetadata metadata = result.getRecordMetadata();
+          log.info("---BLOCKING_MSG_SPRINGBOOT--- [topic]={}, [partition]={}, [offset]={}",
+                   metadata.topic(), metadata.partition(), metadata.offset());
+          list.add(message);
+      }
+  
+      return mapper.writerWithDefaultPrettyPrinter()
+          .writeValueAsString(list);
+  }
+  ```
 
 - 以异步的形式发送消息
-
-    ```java
-    @GetMapping(path = "noBlockProducer")
-    public String noBlockProducer() throws Throwable {
-        List<Message> list = new ArrayList<>();
-        for (int i = 0; i < 5; i++) {
-            Message message = new Message(i, "NO_BLOCKING_MSG_SPRINGBOOT_" + i);
-            ListenableFuture<SendResult<String, Message>> future =
-                kafkaTemplate.send(TOPIC_NAME, PARTITION_ONE, String.valueOf(message.getId()), message);
-    
-            future.addCallback(new ListenableFutureCallback<>() {
-                @Override
-                public void onFailure(Throwable ex) {
-                    log.error("消息发送失败! ",  ex);
-                }
-    
-                @Override
-                public void onSuccess(SendResult<String, Message> result) {
-                    RecordMetadata metadata = result.getRecordMetadata();
-                    log.info("---BLOCKING_MSG_SPRINGBOOT--- [topic]={}, [partition]={}, [offset]={}",
-                             metadata.topic(), metadata.partition(), metadata.offset());
-                }
-            });
-    
-            list.add(message);
-        }
-    
-        return mapper.writerWithDefaultPrettyPrinter()
-            .writeValueAsString(list);
-    }
-    ```
-
-<br />
+  
+  ```java
+  @GetMapping(path = "noBlockProducer")
+  public String noBlockProducer() throws Throwable {
+      List<Message> list = new ArrayList<>();
+      for (int i = 0; i < 5; i++) {
+          Message message = new Message(i, "NO_BLOCKING_MSG_SPRINGBOOT_" + i);
+          ListenableFuture<SendResult<String, Message>> future =
+              kafkaTemplate.send(TOPIC_NAME, PARTITION_ONE, String.valueOf(message.getId()), message);
+  
+          future.addCallback(new ListenableFutureCallback<>() {
+              @Override
+              public void onFailure(Throwable ex) {
+                  log.error("消息发送失败! ",  ex);
+              }
+  
+              @Override
+              public void onSuccess(SendResult<String, Message> result) {
+                  RecordMetadata metadata = result.getRecordMetadata();
+                  log.info("---BLOCKING_MSG_SPRINGBOOT--- [topic]={}, [partition]={}, [offset]={}",
+                           metadata.topic(), metadata.partition(), metadata.offset());
+              }
+          });
+  
+          list.add(message);
+      }
+  
+      return mapper.writerWithDefaultPrettyPrinter()
+          .writeValueAsString(list);
+  }
+  ```
 
 ### 消费者端
 
@@ -713,7 +679,7 @@ public class Message {
 public void listenGroup(ConsumerRecord<String, Message> record) {
     log.info("[topic]={}, [position]={}, [offset]={}, [key]={}, [value]={}",
              record.topic(),record.partition(), record.offset(), record.key(), record.value());
-    
+
     // ack.acknowledge(); 手动提交 Offset，需要enable-auto-commit: false才可以
 }
 ```
