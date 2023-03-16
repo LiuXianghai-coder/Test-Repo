@@ -148,22 +148,26 @@ epoll 是现代多路复用中使用最为广泛的多路复用接口，性能�
 
 首先，对于每一个新创建的 `socket`连接，都会生成对应的 `fd`，这个 `fd` 将会保存到当前进程持有的 “打开文件列表” 中，具体的情况如下图所示：
 
-![socket.png](https://s2.loli.net/2022/03/25/BJTURrM6jcKs1gI.png)
+![socket_basic.png](https://s2.loli.net/2023/03/15/TEh71GP3YfvBXwo.png)
+
+其中，`struct socket` 的关键属性如下：
+
+![socket_struct.png](https://s2.loli.net/2023/03/15/CMvnrBFVpXJK5ay.png)
 
 #### 创建 eventpoll
 
 当调用 `epoll_create` 时，会在内核中生成一个 `struct eventpoll` 的内核对象，并同时将这个对象放入到进程打开的文件描述符列表中，此时的情况可能如下图所示：
 
-![epoll_socket.png](https://s2.loli.net/2022/03/25/v451jS9sieWlTbB.png)
+![epoll_create.png](https://s2.loli.net/2023/03/15/SxKJwQ7IDi5u4FH.png)
 
-对于 `struct eventpoll`，在这里我们主要关心的字段属性如下：
+对于 `struct eventpoll`，在这里我们主要关心的字段结构如下：
 
-![epoll_data.png](https://s2.loli.net/2022/03/25/aEiMgjhAvutcBG4.png)
+![eventpoll_struct.png](https://s2.loli.net/2023/03/15/5cXvaEF6NqmJdTG.png)
 
 对上图的字段解释如下：
 
 - **wq**：等待队列，当调用 `epoll` 时阻塞的进程会放入这个队列，当数据准备就绪时，在这个队列上找到对应的阻塞进程
-- **rblist**：已经就绪的 `fd` 链表。当有的连接已经准备就绪时，会调用对应的回调函数，将这个连接对应的 `fd` 当如这个链表中，这样进程只需要在这个链表中获取就绪的 `fd`，而不需要遍历整个 `fd` 列表
+- **rdlist**：已经就绪的 `fd` 链表。当有的连接已经准备就绪时，会调用对应的回调函数，将这个连接对应的 `fd` 当如这个链表中，这样进程只需要在这个链表中获取就绪的 `fd`，而不需要遍历整个 `fd` 列表
 - **rbr**：为了支持大量连接的高效查找、插入和删除，在 `eventpoll` 中会维护一棵红黑树，通过这颗树来管理已经建立的所有的 `socket` 连接
 
 #### 添加 socket
@@ -176,7 +180,7 @@ epoll 是现代多路复用中使用最为广泛的多路复用接口，性能�
 
 以上文的例子为例，将原有的两个 `socket` 注册到 `epoll` 之后的情况如下图所示：
 
-![epoll_add.png](https://s2.loli.net/2022/03/26/cKNEbhZa8uwrfg5.png)
+![epoll_ctl.png](https://s2.loli.net/2023/03/15/VEjJhxb3r16WNwf.png)
 
 #### epoll_wait 等待接收
 
@@ -189,7 +193,7 @@ epoll 是现代多路复用中使用最为广泛的多路复用接口，性能�
 
 具体流程如下图所示：
 
-<img src="https://s2.loli.net/2022/03/26/UeaAh7wfPpKZRBV.png" alt="epoll_await.png" style="zoom:80%;" />
+<img src="https://s2.loli.net/2023/03/15/exC91VkvM6pHEuc.png" alt="epoll_wait.png" style="zoom:80%;" />
 
 #### 唤醒进程
 
