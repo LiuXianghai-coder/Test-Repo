@@ -130,7 +130,7 @@ public class TestReadAuth {
 
     static {
         /* 
-        	JDK 8 及其i之前的版本需要设置 sun.misc.ProxyGenerator.saveGeneratedFiles 属性为 true，JDK 8 之后版本
+        	JDK 8 及其之前的版本需要设置 sun.misc.ProxyGenerator.saveGeneratedFiles 属性为 true，JDK 8 之后版本
         	则需要设置 jdk.proxy.ProxyGenerator.saveGeneratedFiles 属性为 true，具体可以查看 ProxyGenerator  的saveGeneratedFiles 定义的属性
             
                 配置这个属性的目的在于保存在程序运行过程中生成的 Proxy 对象，

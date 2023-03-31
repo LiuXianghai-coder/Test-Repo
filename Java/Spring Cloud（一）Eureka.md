@@ -47,7 +47,7 @@ Spring 框架提供了对微服务应用程序的支持，它提供了以下的�
 
 这些组件之间的关系如下图所示：
 
-<img src="https://s6.jpg.cm/2022/02/24/LfMfWy.png" alt="spring-components.png" style="zoom:50%;" />
+<img src="https://s2.loli.net/2023/03/25/V2sX6ZHbACjUa4d.png" alt="spring_components.png" style="zoom:80%;" />
 
 ## 服务治理
 
@@ -67,13 +67,13 @@ Spring 框架提供了对微服务应用程序的支持，它提供了以下的�
   
     如下图所示：
   
-  <img src="https://s6.jpg.cm/2022/02/24/LfMZwE.png" alt="spring-components.png" style="zoom:67%;" />
+  <img src="https://s2.loli.net/2023/03/25/FSnHJziI2tCx8qA.png" alt="spring_service_discover_client.png" style="zoom:80%;" />
 
 - 服务端的服务发现
   
-    客户端将氢气发送到具有“负载均衡”功能的微服务上，该 “负载均衡”服务首先查询到服务注册中心，找到可用的服务，然后将请求发送到该服务上
+    客户端将请求发送到具有“负载均衡”功能的微服务上，该 “负载均衡”服务首先查询到服务注册中心，找到可用的服务，然后将请求发送到该服务上
   
-  <img src="https://s6.jpg.cm/2022/02/24/LfOGxQ.png" alt="spring-components.png" style="zoom:67%;" />
+  <img src="https://s2.loli.net/2023/03/25/SmWw4XkDHUVr9Cj.png" alt="spring_service_discover_server.png" style="zoom:80%;" />
 
 ## 实际使用
 
