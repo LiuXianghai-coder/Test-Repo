@@ -25,7 +25,7 @@ INSERT INTO employee (id, name, p_id) VALUES (5, '员工', 4);
 
 然而，这样的设计使得 SQL 的查询操作变得不是那么简单。使用以下的左外连接的方式可以查询对应的关联关系：
 
-``` sql
+```sql
 SELECT E.id, E.name AS "Employee", M.id, M.name AS "Manager"
 FROM employee E
 LEFT OUTER JOIN employee M
@@ -139,3 +139,4 @@ SELECT * FROM ep_cte;
 <sup>[3]</sup> https://www.mysqltutorial.org/mysql-recursive-cte/
 
 <sup>[4]</sup> https://stackoverflow.com/questions/20215744/how-to-create-a-mysql-hierarchical-recursive-query
+

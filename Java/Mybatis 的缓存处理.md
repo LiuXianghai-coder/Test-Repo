@@ -40,18 +40,18 @@ mybatis:
 假设现在我们创建了如下的表，结构如下：
 
 ``` sql
-CREATE TABLE user_info
+CREATE TABLE rate_info
 (
-    id           BIGINT      NOT NULL COMMENT '用户记录 id'
+    id           BIGINT      NOT NULL COMMENT '利率记录 id'
         PRIMARY KEY,
-    user_name    VARCHAR(32) NULL COMMENT '用户姓名',
-    user_age     SMALLINT    NULL COMMENT '用户年龄',
-    created_user VARCHAR(32) NULL COMMENT '创建这条记录的用户',
+    rate_name    VARCHAR(32) NULL COMMENT '利率名称',
+    rate_val     DECIMAL     NULL COMMENT '利率值',
+    created_user VARCHAR(32) NULL COMMENT '创建这条记录的用户名称',
     created_time DATETIME    NULL COMMENT '这条记录的创建时间',
-    updated_user VARCHAR(32) NULL COMMENT '更新这条记录的用户',
-    updated_time DATETIME    NULL COMMENT '更新这条记录的时间'
+    updated_user VARCHAR(32) NULL COMMENT '更新这条记录的用户名称',
+    updated_time DATETIME    NULL COMMENT '这条记录最近的更新时间'
 )
-    COMMENT '用户信息表';
+    COMMENT '利率信息表';
 ```
 
 ### 默认的缓存

@@ -327,7 +327,7 @@ InnoDB 通过 `innodb_autoinc_lock_mode` 变量来决定采用的方式，该变
 
 锁结构主要由 6 部分组成，分别为：事务信息、索引信息、表锁或行锁信息、type_mode、其它信息和 与 heap_no 对应的比特位，具体结构如下图所示：<sup>[1]</sup>
 
-<img src="https://mmbiz.qpic.cn/mmbiz_png/AZHyCoMMOCicBd8icwKDibjXU5J26eb2qJialluvkkccXHJSXNV5n1P49AkVXkccwRN1icljCqN9VrdI1SibwJYycZSQ/640?wx_fmt=png&tp=webp&wxfrom=5&wx_lazy=1&wx_co=1" style="zoom:60%">
+<img src="https://mmbiz.qpic.cn/mmbiz_png/AZHyCoMMOCicBd8icwKDibjXU5J26eb2qJialluvkkccXHJSXNV5n1P49AkVXkccwRN1icljCqN9VrdI1SibwJYycZSQ/640" style="zoom:60%">
 
 具体的解释如下：
 
@@ -347,7 +347,7 @@ InnoDB 通过 `innodb_autoinc_lock_mode` 变量来决定采用的方式，该变
 
 - type_mod：由 32 个 bit 组成，分别为 lock_mod、lock_type、lock_wait 和 rec_lock_type，具体如下图所示：<sup>[1]</sup>
   
-  <img src="https://mmbiz.qpic.cn/mmbiz_png/AZHyCoMMOCicBd8icwKDibjXU5J26eb2qJianE3IcFNbG4x4Y3pBV455eCGPr2kh008iadlayMGXMebyk9DrZuwlryA/640?wx_fmt=png&tp=webp&wxfrom=5&wx_lazy=1&wx_co=1" style="zoom:80%">
+  <img src="https://mmbiz.qpic.cn/mmbiz_png/AZHyCoMMOCicBd8icwKDibjXU5J26eb2qJianE3IcFNbG4x4Y3pBV455eCGPr2kh008iadlayMGXMebyk9DrZuwlryA/640" style="zoom:80%">
 
 - 其它信息：为了更好地管理系统运行过程中生成的各种锁结构，设计了各种哈希表和链表
 
@@ -375,7 +375,7 @@ InnoDB 通过 `innodb_autoinc_lock_mode` 变量来决定采用的方式，该变
 
 - 与 heap_no 对应的比特位：因为之前已经存在 5 条记录，所以 number = 15 对应的 no_heap = 7，它对应的 bit 位如下图所示：<sup>[1]</sup>
   
-  <img src="https://mmbiz.qpic.cn/mmbiz_png/AZHyCoMMOCicBd8icwKDibjXU5J26eb2qJiasfNicGQccCOOjfZbraspElcWtC6H0ic38gGILYcctiaGfQvzqsTJicdHDQ/640?wx_fmt=png&tp=webp&wxfrom=5&wx_lazy=1&wx_co=1" style="zoom:80%">
+  <img src="https://mmbiz.qpic.cn/mmbiz_png/AZHyCoMMOCicBd8icwKDibjXU5J26eb2qJiasfNicGQccCOOjfZbraspElcWtC6H0ic38gGILYcctiaGfQvzqsTJicdHDQ/640" style="zoom:80%">
   
   此时整个锁结构看起来可能如下所示：<sup>[1]</sup>
   
@@ -438,7 +438,7 @@ InnoDB 通过 `innodb_autoinc_lock_mode` 变量来决定采用的方式，该变
 
 2. 根据不同的隔离级别，为当前的记录加上不同类型的锁，具体如下表所示：<sup>[1]</sup>
    
-   <img src="https://mmbiz.qpic.cn/mmbiz_png/AZHyCoMMOCicBd8icwKDibjXU5J26eb2qJiaxqia60iacmMVovK7pxBRdhBianT5YJ4zyFJfxsHyYpwYic82OsLrC6Pjbw/640?wx_fmt=png&tp=webp&wxfrom=5&wx_lazy=1&wx_co=1" style="zoom:60%">
+   <img src="https://mmbiz.qpic.cn/mmbiz_png/AZHyCoMMOCicBd8icwKDibjXU5J26eb2qJiaxqia60iacmMVovK7pxBRdhBianT5YJ4zyFJfxsHyYpwYic82OsLrC6Pjbw/640" style="zoom:60%">
 
 3. 判断索引条件下推（ICP，Index Condition Pushdown）的条件是否成立，如果符合索引条件下推，则执行步骤 4；否则，获取记录所在的单向链表的下一条记录，并作为新的记录，跳到步骤 2 继续执行
    
