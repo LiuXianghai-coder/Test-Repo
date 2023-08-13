@@ -7,7 +7,7 @@
 `ROW_NUMBER()` 函数的使用语法如下：
 
 ``` sql
-ROW_NUMBER() OVER (<partition_definition> <order_definition>)
+ROW_NUMBER() OVER ([partition_definition] [order_definition])
 ```
 
 其中，`partition_definition` 按照如下的语法，定义执行分组的列：
@@ -31,9 +31,9 @@ CREATE TABLE course_info
 (
     course_id   INT         NOT NULL
         PRIMARY KEY,
-    course_name VARCHAR(32) NULL,
-    course_type INT         NULL,
-    update_time DATETIME    NULL
+    course_name VARCHAR(32) NULL, -- 课程名称
+    course_type INT         NULL, -- 课程类型（主科、副科）
+    update_time DATETIME    NULL -- 该条记录的最近一次更新时间
 )
 ```
 
@@ -116,9 +116,9 @@ RANK() OVER (
 ``` sql
 CREATE TABLE IF NOT EXISTS student_info (
     id INT PRIMARY KEY NOT NULL ,
-    name VARCHAR(32) NOT NULL ,
-    gender VARCHAR(6) NOT NULL ,
-    grade DECIMAL NOT NULL
+    name VARCHAR(32) NOT NULL , -- 姓名
+    gender VARCHAR(6) NOT NULL , -- 性别
+    grade DECIMAL NOT NULL -- 成绩
 )
 ```
 
@@ -325,14 +325,14 @@ LIMIT 1
 
 即，在所有的男生中，分数为 $86$ 的人数占到总人数的 $50\%$
 
-## `NTILE(num_buckets)`
+## `NTILE()`
 
-`NTILE(num_buckets)` 函数的目的是为了将一个子集（窗口）记录尽可能地划分成为 `num_buckets` 个桶，同时返回每个记录行所在的桶编号。
+`NTILE()` 函数的目的是为了将一个子集（窗口）记录尽可能地划分成为 `num_buckets` 个桶，同时返回每个记录行所在的桶编号。
 
-`NTILE(num_buckets)` 的语法如下所示：
+`NTILE()` 的语法如下所示：
 
 ``` text
-NTILE(num_buckets) OVER (<partition_definition> <order_definition>)
+NTILE(num_buckets) OVER ([partition_definition] [order_definition])
 ```
 
 其中 `num_buckets` 表示需要划分的桶的个数，`partition_definition` 和 `order_definition` 与 `ROW_NUMBER()` 函数一致
@@ -368,10 +368,194 @@ WHERE tmp.year='2023-01-01'
 ``` text
 LAG(expr[, offset[, default]])
 OVER (
-  <partition_definition> <partition_definition>
+	[partition_definition] [order_definition]
 )
 ```
 
 其中，`expr` 表示需要获取数据的列名或者表达式，这个参数是必需的；`offset` 表示距离子集中上一条记录的偏移量，即要获取子集中的前第 $offset$ 行的数据，默认为 $1$；`default` 表示如果无法获取到有效值时，默认显示的数据（默认为 `NULL`）
 
 `partition_definition` 和 `partition_definition` 与 `ROW_NUMBER()` 函数一致
+
+在某些需要递归查询的业务中会很有效，比如，现在有一个流程申请信息记录表：
+
+```sql
+CREATE TABLE IF NOT EXISTS apply_info (
+    id INT PRIMARY KEY NOT NULL ,
+    name VARCHAR(127) NOT NULL , -- 本次发起申请名称
+    apply_type VARCHAR(7) NOT NULL , -- 本次发起的申请的所属类型
+    business_key VARCHAR(32), -- 本次发起的申请的关联业务主键
+    create_time  DATETIME    NULL -- 该条记录的创建时间
+);
+```
+
+其中数据如下：
+
+| id   | name           | apply\_type | business\_key  | create\_time        |
+| :--- | :------------- | :---------- | :------------- | :------------------ |
+| 1    | 本息分配申请—1 | 0101        | APPLY000000001 | 2022-08-13 17:02:51 |
+| 2    | 本息分配申请—2 | 0101        | APPLY000000002 | 2022-10-13 18:02:56 |
+| 3    | 本息分配申请—3 | 0101        | APPLY000000003 | 2023-06-13 17:02:51 |
+| 4    | 数据采集—1     | 0102        | APPLY000000004 | 2022-11-13 16:03:29 |
+| 5    | 数据采集—2     | 0102        | APPLY000000005 | 2023-01-12 12:01:31 |
+| 6    | 数据采集—3     | 0102        | APPLY000000006 | 2023-08-07 16:03:29 |
+
+如果希望查询申请类型为 `  0101` 的申请记录的历史列表，可以执行如下的查询：
+
+``` sql
+SELECT ai.id,
+       ai.name,
+       ai.create_time,
+       LAG(id) OVER (PARTITION BY apply_type ORDER BY create_time) AS parent_id
+FROM apply_info ai
+WHERE ai.apply_type='0101'
+```
+
+对应的查询结果如下：
+
+| id   | name           | create\_time        | parent\_id |
+| :--- | :------------- | :------------------ | :--------- |
+| 1    | 本息分配申请—1 | 2022-08-13 17:02:51 | null       |
+| 2    | 本息分配申请—2 | 2022-10-13 18:02:56 | 1          |
+| 3    | 本息分配申请—3 | 2023-06-13 17:02:51 | 2          |
+
+这样便能很方便地得到申请的一部分历史明细
+
+## `LEAD()`
+
+`LEAD()` 函数和 `LAG()` 函数十分类似，区别在于 `LEAD()` 函数是获取子集中每个指定偏移量之后的数据，以 `LAG()` 的数据集为例，同样可以使用 `LEAD()` 来完成这一工作，只是最终的结果会是倒序排列的：
+
+``` sql
+SELECT ai.id,
+       ai.name,
+       ai.create_time,
+       LEAD(id) OVER (PARTITION BY apply_type ORDER BY create_time DESC) AS lead_rk
+FROM apply_info ai
+WHERE ai.apply_type='0101'
+```
+
+对应的查询结果如下：
+
+| id   | name           | create\_time        | lead\_rk |
+| :--- | :------------- | :------------------ | :------- |
+| 3    | 本息分配申请—3 | 2023-06-13 17:02:51 | 2        |
+| 2    | 本息分配申请—2 | 2022-10-13 18:02:56 | 1        |
+| 1    | 本息分配申请—1 | 2022-08-13 17:02:51 | null     |
+
+## `FIRST_VALUE()`
+
+`FIRST_VALUE()` 函数的作用是返回子集中第一行的指定列数据，该函数的语法如下：
+
+``` text
+FIRST_VALUE(expr)
+OVER (
+  [partition_definition] [order_definition] [frame_clause]
+)
+```
+
+其中，`expr` 为要获取数据的列明或者表达式，`partition_definition` 和 `partition_definition` 与 `ROW_NUMBER()` 函数一致；
+
+`frame_clause` 的语法如下：
+
+``` text
+frame_unit {<frame_start>|<frame_between>}
+```
+
+`frame` 是当前划分的子集中的又一个子集，为了重定义这个子集，便需要使用到 `frame_clause`，其中，`frame_unit` 用于指定当前行和 `frame` 行之间的关系，有以下几个选项：
+
+- `ROWS`：表示当前行和 `frame` 行之间的偏移量是行号之间的差异
+- `RANGE`：表示当前行和 `frame` 行之间的偏移量是行值与当前行值之间的差异
+
+`frame_start` 和 `frame_between` 用于定义 `frame` 的区间范围：
+
+如果是使用 `frame_start` 的语法，那么可以使用如下的语句：
+
+- `UNBOUNDED PRECEDING` ：表示 `frame` 的开始区间为该分区的第一行数据
+- `N PRECEDING`：距离分区第一行的偏移量，其中，$N$ 表示当前分区第一行的前 $N$ 行，$N$ 可以是数字也可以是表达式
+- `CURRENT ROW`：对于以 `ROWS` 为 `frame_unit` 的情况，开始区间为当前行；如果为 `RANGE`，则为当前行的对等点
+
+对于 `frame_between`，需要遵循如下的语法：
+
+``` sql
+BETWEEN frame_boundary_1 AND frame_boundary_2   
+```
+
+其中，`frame_boundary_1` 和 `frame_boundary_2` 可以为以下几个之一：
+
+- `frame_start`：与 `frame_start` 描述的一致
+- `UNBOUNDED FOLLOWING`：当前分区的最后一行
+- `N FOLLOWING`：当前行之后的第 $N$ 行
+
+如果不指定 `frame_clause` 的话，`MySQL` 会默认执行以下的 `frame_clause`：
+
+``` sql
+RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+```
+
+关于 `frame_clause` 的边界情况如下图所示：
+
+![image.png](https://s2.loli.net/2023/08/13/47d2LXPW9tHD6xR.png)
+
+以上文中的 `student_info` 数据集为例，如果希望分别查询 `Male` 和 `Female` 中的最高分数，可以执行如下的查询：
+
+``` sql
+SELECT
+    DISTINCT
+    si.gender,
+    FIRST_VALUE(si.grade) OVER (PARTITION BY gender ORDER BY grade DESC) AS higher_grade
+FROM student_info si
+```
+
+对应的查询结果如下：
+
+| gender | higher\_grade |
+| :----- | :------------ |
+| Female | 86            |
+| Male   | 91            |
+
+## `LAST_VALUE()`
+
+`LAST_VALUE()` 和 `FIRST_VALUE()` 十分类似，区别在于 `LAST_VALUE()` 返回的是子集中的最后一条数据的指定列数据
+
+以 `FISRT_VALUE()` 中用到的数据为例，如果我们希望分别查询 `Male` 和 `Female` 中的最低分，可以执行如下的查询：
+
+``` sql
+SELECT DISTINCT si.gender,
+                LAST_VALUE(si.grade) OVER (PARTITION BY gender ORDER BY grade DESC
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+                    ) AS lower_grade
+FROM student_info si
+```
+
+## `NTH_VALUE()`
+
+`NTH_VALUE()` 的作用是获取指定 `frame` 中的第 $N$ 个记录行的指定数据，对应的函数语法如下所示：
+
+``` text
+NTH_VALUE(expr, N)
+OVER (
+  [partition_definition] [order_definition] [frame_clause]
+)
+```
+
+依旧以上文的 `student_info` 的数据集为例，如果希望获取性别为 `Female` 中，排名第二的分数，可以执行如下的查询：
+
+``` sql
+SELECT DISTINCT si.gender,
+                NTH_VALUE(si.grade, 2) OVER (PARTITION BY gender ORDER BY grade DESC
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+                    ) AS lower_grade
+FROM student_info si
+WHERE si.gender='Female'
+```
+
+
+
+<hr />
+
+参考：
+
+<sup>[1]</sup> https://www.mysqltutorial.org/mysql-window-functions/
+
+<sup>[2]</sup> https://dev.mysql.com/doc/refman/8.0/en/window-function-descriptions.html
+
+<sup>[3]</sup> https://www.sjkjc.com/mysql-ref
