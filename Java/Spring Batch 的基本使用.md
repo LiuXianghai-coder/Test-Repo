@@ -18,7 +18,7 @@
 
 Spring Batch 的处理结构如下所示：
 
-<img src="https://spring.io/images/diagram-batch-5001274a87227c34b690542c45ca0c9d.svg" />
+![batch.png](https://s2.loli.net/2023/11/12/IeiW8uf6Vy4RLPm.png)
 
 其中，任务的处理是在 `Step` 这个阶段定义的。在 `Step` 中，需要定义数据的读取、数据的处理、数据的写出操作，在这三个阶段中，数据的处理是真正进行数据处理的地方。具体 `Step` 的流程如下图所示：
 
