@@ -1,0 +1,70 @@
+<mxfile host="Electron" modified="2024-07-07T08:57:21.533Z" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/21.2.8 Chrome/112.0.5615.165 Electron/24.2.0 Safari/537.36" etag="3YQyLY-Jtmx7tur8E52Z" version="21.2.8" type="device">
+  <diagram name="第 1 页" id="xsaaSjglxFXpLhSsxq4V">
+    <mxGraphModel dx="1050" dy="669" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="e_im4mXYWjalnqBHvwhF-5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;strokeWidth=2;fontSize=16;sketch=1;curveFitting=1;jiggle=2;" edge="1" parent="1" source="e_im4mXYWjalnqBHvwhF-1" target="e_im4mXYWjalnqBHvwhF-4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-1" value="" style="rounded=1;whiteSpace=wrap;html=1;fontSize=16;fillColor=#dae8fc;strokeColor=#6c8ebf;sketch=1;curveFitting=1;jiggle=2;" vertex="1" parent="1">
+          <mxGeometry x="244" y="180" width="316" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-2" value="MapPropertySource" style="rounded=1;whiteSpace=wrap;html=1;fontSize=16;fillColor=#f8cecc;strokeColor=#b85450;glass=0;sketch=1;curveFitting=1;jiggle=2;" vertex="1" parent="1">
+          <mxGeometry x="267" y="260" width="273" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-3" value="EncryptableMapPropertySourceWrapper" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;sketch=1;curveFitting=1;jiggle=2;" vertex="1" parent="1">
+          <mxGeometry x="280" y="200" width="240" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=16;sketch=1;curveFitting=1;jiggle=2;" edge="1" parent="1" source="e_im4mXYWjalnqBHvwhF-4" target="e_im4mXYWjalnqBHvwhF-6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-4" value="getProperty" style="rounded=1;whiteSpace=wrap;html=1;fontSize=16;sketch=1;curveFitting=1;jiggle=2;" vertex="1" parent="1">
+          <mxGeometry x="610" y="245" width="150" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-9" value="否" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=16;sketch=1;curveFitting=1;jiggle=2;" edge="1" parent="1" target="e_im4mXYWjalnqBHvwhF-8">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="979" y="275" as="sourcePoint" />
+            <mxPoint x="1039" y="275" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-11" value="是" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=16;sketch=1;curveFitting=1;jiggle=2;" edge="1" parent="1" source="e_im4mXYWjalnqBHvwhF-6" target="e_im4mXYWjalnqBHvwhF-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-6" value="是否需要是 String 类型的值" style="rhombus;whiteSpace=wrap;html=1;fontSize=16;fillColor=#d5e8d4;strokeColor=#82b366;sketch=1;curveFitting=1;jiggle=2;" vertex="1" parent="1">
+          <mxGeometry x="810" y="240" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-8" value="返回原值" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#f0a30a;fontColor=#000000;strokeColor=#BD7000;sketch=1;curveFitting=1;jiggle=2;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="245" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-13" value="是" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=16;sketch=1;curveFitting=1;jiggle=2;" edge="1" parent="1" source="e_im4mXYWjalnqBHvwhF-10" target="e_im4mXYWjalnqBHvwhF-12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-15" value="否" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=16;sketch=1;curveFitting=1;jiggle=2;" edge="1" parent="1" source="e_im4mXYWjalnqBHvwhF-10" target="e_im4mXYWjalnqBHvwhF-14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-10" value="是否被过滤器排除" style="rhombus;whiteSpace=wrap;html=1;fontSize=16;fillColor=#e1d5e7;strokeColor=#9673a6;sketch=1;curveFitting=1;jiggle=2;" vertex="1" parent="1">
+          <mxGeometry x="810" y="350" width="170" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-12" value="返回原值" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#f0a30a;fontColor=#000000;strokeColor=#BD7000;sketch=1;curveFitting=1;jiggle=2;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="355" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-17" value="否" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=16;sketch=1;curveFitting=1;jiggle=2;" edge="1" parent="1" source="e_im4mXYWjalnqBHvwhF-14" target="e_im4mXYWjalnqBHvwhF-16">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-19" value="是" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=16;sketch=1;curveFitting=1;jiggle=2;" edge="1" parent="1" source="e_im4mXYWjalnqBHvwhF-14" target="e_im4mXYWjalnqBHvwhF-18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-14" value="是否是经过加密的值&lt;br style=&quot;font-size: 16px;&quot;&gt;EncryptablePropertyDetector#isEncrypted" style="rhombus;whiteSpace=wrap;html=1;fontSize=16;fillColor=#fff2cc;strokeColor=#d6b656;sketch=1;curveFitting=1;jiggle=2;" vertex="1" parent="1">
+          <mxGeometry x="720" y="490" width="350" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-16" value="返回原值" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#f0a30a;fontColor=#000000;strokeColor=#BD7000;sketch=1;curveFitting=1;jiggle=2;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="500" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="e_im4mXYWjalnqBHvwhF-18" value="返回解密后的值" style="rounded=0;whiteSpace=wrap;html=1;fontSize=16;fillColor=#b1ddf0;strokeColor=#10739e;sketch=1;curveFitting=1;jiggle=2;" vertex="1" parent="1">
+          <mxGeometry x="835" y="650" width="120" height="60" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
