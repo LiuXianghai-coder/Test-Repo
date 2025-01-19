@@ -567,3 +567,13 @@ public class KdTree {
 ```
 
 具体的源代码位于：https://github.com/LiuXianghai-coder/Spring-Study/tree/master/demo/src/main/java/com/example/demo/algorithm
+
+<br />
+
+参考：
+
+<sup>[1]</sup> https://oi-wiki.org/ds/kdt/
+
+<sup>[2]</sup> https://coursera.cs.princeton.edu/algs4/assignments/kdtree/specification.php
+
+<sup>[3]</sup> https://www.baeldung.com/cs/k-d-trees
