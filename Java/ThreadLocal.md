@@ -6,104 +6,49 @@
 
 ## 相关使用
 
-一种常见的使用方式便是对于动态数据源的处理，因为需要在实际业务处理的过程中，对当前线程所需要执行的数据源进行切换
-
-如，创建一个如下的 `DataSourceHolder` 对象，表示当前持有的数据源信息：
+一种常见的使用方式便是用于存储会话信息，一般可以通过配置 `javax.servlet.Filter` 来实现，将会话信息存储在一个 `ThreadLocal` 中，使得后续的业务都能够访问到当前的会话信息
 
 ``` java
-public final class DataSourceHolder {
-
-    /**
-    	使用一个 ThreadLocal 来存储当前线程持有的动态数据源信息，后续对于数据源的修改只需要修改该 ThreadLocal 
-    	对象里持有的数据源信息即可进行判断判断
-    */
-    private final static ThreadLocal<String> DATASOURCE_HOLDER = new ThreadLocal<>();
-
-    public static String getCurDataSource() {
-        return DATASOURCE_HOLDER.get();
-    }
-
-    public static void setCurDataSource(String curDataSource) {
-        DATASOURCE_HOLDER.set(curDataSource);
-    }
-}
-```
-
-当然，同样需要对进行切换的上下文做一个切入点的拦截处理，也就是 AOP：
-
-``` java
-import com.example.demo.transaction.DataSourceHolder;
-import org.aspectj.lang.JoinPoint;
-import org.aspectj.lang.annotation.Aspect;
-import org.aspectj.lang.annotation.Before;
-import org.aspectj.lang.annotation.Pointcut;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-@Aspect
-@Component
-public class DataSourceAspect {
-    
-    /**
-    	作为 AOP 的切入点，即对应的 service 下的所有 Bean 进行拦截处理
-    */
-    @Pointcut("execution(* com.example.demo.service.*.*(..))")
-    public void dataSourcePointcut() {
-    }
+import javax.servlet.*;
+import java.io.IOException;
 
-    /**
-    	实际拦截的业务处理逻辑
-    */
-    @Before("com.example.demo.aop.DataSourceAspect.dataSourcePointcut()")
-    public void setDataSource(JoinPoint joinPoint) {
-        String dataSource = DataSourceHolder.getCurDataSource();
-        if (dataSource.equals("mysql")) {
-            // 为 MySQL 数据源的特殊处理
-        } else {
-            // 其它数据源的处理
+@Component
+public class SessionFilter implements Filter {
+
+    // 存储当前的会话信息，后续的业务处理可以有此直接获取，而无需额外的查询
+    public final static ThreadLocal<String> SESSION_LOCAL = new ThreadLocal<>();
+
+    @Override
+    public void doFilter(ServletRequest request,
+                         ServletResponse response,
+                         FilterChain chain) throws IOException, ServletException {
+        try {
+            SESSION_LOCAL.set(getSessionInfo());
+            chain.doFilter(request, response);
+        } finally {
+            SESSION_LOCAL.remove();
         }
     }
 }
 ```
 
-在实际使用时，在需要使用时，修改 `DataSourceHolder` 中持有的线程数据源信息即可：
+在实际使用时，在需要使用时，直接获取会话信息即可：
 
 ``` java
-import com.example.demo.entity.SaleInfo;
-import com.example.demo.mapper.SaleInfoMapper;
-import com.example.demo.transaction.DataSourceHolder;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tk.mybatis.mapper.entity.Example;
-import tk.mybatis.mapper.util.Sqls;
-
-import javax.annotation.Resource;
-import java.util.List;
 
 @Service
 @Transactional
 public class SaleInfoService {
 
-    private final static Logger log = LoggerFactory.getLogger(SaleInfoService.class);
-
-    @Resource
-    private SaleInfoMapper saleInfoMapper;
-    
-    @Resource
-    private UserInfoService userInfoService;
-
     public void updateSaleInfo() {
-        Example example = Example.builder(SaleInfo.class)
-                .andWhere(Sqls.custom().andBetween("id", 50001L, 50009L))
-                .build();
-        DataSourceHolder.setCurDataSource("mysql");
-        List<SaleInfo> data = saleInfoMapper.selectByExample(example);
-        saleInfoMapper.mysqlUpdateAll(data);
-
-        // 修改数据源为 postgresql，引入 UserInfoService 使得代理生效
-        DataSourceHolder.setCurDataSource("postgresql");
-        userInfoService.updateUserInfo(data);
+        String userInfo = SessionFilter.SESSION_LOCAL.get();
+        // 。。。。。其余的部分业务逻辑
     }
 }
 ```
@@ -286,10 +231,384 @@ public class ThreadLocal<T> {
    }
    ```
 
-   `replaceStaleEntry` 方法用于直接替换掉当前节点的 `ThreadLocal` 已经被清理的情况，具体的流程如下图所示：
+   - `replaceStaleEntry`
 
-   
+     `replaceStaleEntry` 方法用于直接替换掉当前节点的 `ThreadLocal` 已经被清理的情况，具体的流程如下图所示：
+
+     ![ThreadLocal_replaceStaleEntry.png](https://s2.loli.net/2025/03/17/G7pFf2j6kNs4YQi.png)
+
+     对应的源码如下：
+
+     ``` java
+     private void replaceStaleEntry(ThreadLocal<?> key, Object value,
+                                    int staleSlot) {
+         Entry[] tab = table;
+         int len = tab.length;
+         Entry e;
+     
+         // Back up to check for prior stale entry in current run.
+         // We clean out whole runs at a time to avoid continual
+         // incremental rehashing due to garbage collector freeing
+         // up refs in bunches (i.e., whenever the collector runs).
+         /*
+         	staleSlot 表示本次确定已经被清除的 ThreadLocal 位置索引，最终一定会将该位置替换为本次的 ThreadLocal
+         	slotToExpunge 表示需要被清理的 ThreadLocal 位置，如果最终 slotToExpunge != staleSlot，说明需要对其进行清理了
+         */
+         int slotToExpunge = staleSlot;
+         /*
+         	这里通过向前探测的方式来寻找  slotToExpunge 的位置，
+         	目的是为了判断在未冲突的部分是否也发生了 ThreadLocal 的清理
+         */
+         for (int i = prevIndex(staleSlot, len);
+              (e = tab[i]) != null;
+              i = prevIndex(i, len))
+             if (e.get() == null)
+                 slotToExpunge = i;
+     
+         // Find either the key or trailing null slot of run, whichever
+         // occurs first
+         for (int i = nextIndex(staleSlot, len); // 向后以线性探测的方式进行查找
+              (e = tab[i]) != null;
+              i = nextIndex(i, len)) {
+             ThreadLocal<?> k = e.get();
+     
+             // If we find key, then we need to swap it
+             // with the stale entry to maintain hash table order.
+             // The newly stale slot, or any other stale slot
+             // encountered above it, can then be sent to expungeStaleEntry
+             // to remove or rehash all of the other entries in run.
+             /*
+             	如果在解决冲突的过程中发现与本次的 ThreadLocal 一致，
+             	则需要将其替换到 staleSlot 的位置，并对其进行清理
+             */
+             if (k == key) {
+                 e.value = value;
+     
+                 tab[i] = tab[staleSlot];
+                 tab[staleSlot] = e;
+     
+                 // Start expunge at preceding stale entry if it exists
+                 // 如果之前没有找到被清除的位置索引，在替换后原来的位置 i 就成为了需要被清除的索引
+                 if (slotToExpunge == staleSlot)
+                     slotToExpunge = i;
+                 cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
+                 return;
+             }
+     
+             // If we didn't find stale entry on backward scan, the
+             // first stale entry seen while scanning for key is the
+             // first still present in the run.
+             /* 
+             	同样地，如果之前向前无法找到被清除的位置，而当前的位置已经被清除了，
+             	则将 slotToExpunge 置为 i，在后续的处理中对其进行清除
+             	expungeStaleEntry 也会解决冲突的情况，因此记录第一次出现的位置即可
+             */
+             if (k == null && slotToExpunge == staleSlot)
+                 slotToExpunge = i;
+         }
+     
+         // If key not found, put new entry in stale slot
+         /*
+         	当前的 table 中不存在与当前 ThreadLocal 对应的 Entry，
+         	因此需要新创建 Entry，并替换 staleSlot 位置对应的 Entry
+         */
+         tab[staleSlot].value = null;
+         tab[staleSlot] = new Entry(key, value);
+     
+         // If there are any other stale entries in run, expunge them
+         /*
+         	向前探测的过程中发现了被清理的 ThreadLocal，同样需要对其进行清理
+         */
+         if (slotToExpunge != staleSlot)
+             cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
+     }
+     ```
+
+   - `expungeStaleEntry`
+
+     在 `replaceStaleEntry` 中较为重要的是 `expungeStaleEntry`  方法，它的作用是清除对应位置的 `Entry`，并对冲突的 `Entry` 重新排列，具体的流程如下所示：
+
+     ![ThreadLocal_expungeStaleEntry.png](https://s2.loli.net/2025/03/17/JtRf1TkhCKcnpao.png)
+
+     对应的源码如下：
+
+     ``` java
+     private int expungeStaleEntry(int staleSlot) {
+         Entry[] tab = table;
+         int len = tab.length;
+     
+         // expunge entry at staleSlot
+         // 首先清除 statleSlot 对应的 Entry 信息
+         tab[staleSlot].value = null;
+         tab[staleSlot] = null;
+         size--;
+     
+         // Rehash until we encounter null
+         Entry e;
+         int i;
+         /*
+         	线性探测地处理 staleSlot 位置冲突的 ThreadLocal，并对它们进行清除或调整
+         */
+         for (i = nextIndex(staleSlot, len);
+              (e = tab[i]) != null;
+              i = nextIndex(i, len)) {
+             ThreadLocal<?> k = e.get();
+             if (k == null) {
+                 /*
+                 	如果当前 Entry 对应的 ThreadLocal 已经被清除了，
+                 	则直接清除当前位置的 Entry 信息
+                 */
+                 e.value = null;
+                 tab[i] = null;
+                 size--;
+             } else {
+                 /*
+                 	走到这里说明当前的 Entry 的 ThreadLocal 依旧存活，因此
+                 	需要对其进行调整
+                 */
+                 int h = k.threadLocalHashCode & (len - 1);
+                 if (h != i) {
+                     /*
+                     	这里首先将当前的位置设置为 null 是为了在后续的冲突解决中一定能找到本次 Entry 最终的实际位置，
+                     	其次，在清除的过程中，有可能之前冲突的部分已经被清理了，需要将该位置的 Entry 移动到之前的被清除位置，相当于
+                     	与之前的位置做了一次交换
+                     */
+                     tab[i] = null;
+     
+                     // Unlike Knuth 6.4 Algorithm R, we must scan until
+                     // null because multiple entries could have been stale.
+                     while (tab[h] != null)
+                         h = nextIndex(h, len);
+                     tab[h] = e; // 交换 i 的 Entry 到 h
+                 }
+             }
+         }
+         return i; // 这里的 table[i] 为 null
+     }
+     ```
+
+   - `cleanSomeSlots`
+
+     `cleanSomeSlots` 的作用是机会性地清除一些 `Entry`，对应的执行流程如下图所示：
+
+     ![ThreadLocal_cleanSomeSlots.png](https://s2.loli.net/2025/03/17/SpxKRiqhzWUw1j3.png)
+
+     对应的源码如下：
+
+     ``` java
+     /*
+     	注意：这里的 i 对应的 Entry 为 null
+     	n 用于控制循环的次数，如果没有 ThreadLocal 被清除，会检查 i 后的 log2n 个位置是否存在被清除的 Entry
+     */
+     private boolean cleanSomeSlots(int i, int n) {
+         boolean removed = false;
+         Entry[] tab = table;
+         int len = tab.length;
+         do {
+             i = nextIndex(i, len);
+             Entry e = tab[i];
+             if (e != null && e.get() == null) {
+                 n = len;
+                 removed = true;
+                 i = expungeStaleEntry(i); // 清除 i 的 Entry，并调整与 i 冲突的 ThreadLocal
+             }
+         } while ( (n >>>= 1) != 0);
+         return removed;
+     }
+     ```
+
+   - `rehash` 
+
+     `rehash` 方法的目的是为了扩容，但正如上文提到的，`cleanSomeSlots` 只会机会性的清除一些 `Entry`，因此在调用 `rehash` 方法时，`table` 中依旧可能存在 `ThreadLocal` 已经被清除的 `Entry`。因此首先需要对整个数组进行清理操作，再判断是否达到了扩容的阈值
+
+     对应的源码如下所示：
+
+     ``` java
+     private void rehash() {
+         expungeStaleEntries(); // 对整个数组的元素进行清理操作
+     
+         // Use lower threshold for doubling to avoid hysteresis
+         /*
+         	threshold 为数组长度的 2/3，这里的 3/4 就是数组长度的 1/2，为理想的阈值
+         */
+         if (size >= threshold - threshold / 4)
+             resize();
+     }
+     ```
+
+     值得提一句的是，线性探测法的时间复杂度为 $O(\frac{1}{1-\alpha})$，其中，$\alpha$ 表示数组中实际使用的空间占整体空间的比值，一般认为 $\frac{1}{2}$ 是一个比较理想的状态
+
+     - `expungeStaleEntries`
+
+       `expungeStaleEntries` 用于整个数组的清理操作，对应的源码如下所示：
+
+       ``` java
+       private void expungeStaleEntries() {
+           Entry[] tab = table;
+           int len = tab.length;
+           for (int j = 0; j < len; j++) {
+               Entry e = tab[j];
+               /* 
+               	遍历数组的每个 Entry，对可能被清除的 Entry 位置调用 expungeStaleEntry 进行清理
+               */
+               if (e != null && e.get() == null)
+                   expungeStaleEntry(j);
+           }
+       }
+       ```
+
+     - `resize`
+
+       `resize` 方法是实际的扩容操作，具体的做法就是遍历整个 `table`，将 `table` 中的每个未被清除的 `Entry` 按照线性探测的冲突处理策略放入新的 `table` 中，在最后替换原有的 `table` 和阈值信息
+
+       对应的源码如下所示：
+
+       ``` java
+       private void resize() {
+           Entry[] oldTab = table;
+           int oldLen = oldTab.length;
+           int newLen = oldLen * 2; // 扩容长度为原来的两倍
+           Entry[] newTab = new Entry[newLen];
+           int count = 0;
+       
+           for (Entry e : oldTab) { // 遍历整个 table，将未被清理的 Entry 放入新的 table 中
+               if (e != null) {
+                   ThreadLocal<?> k = e.get();
+                   if (k == null) {
+                       e.value = null; // Help the GC
+                   } else {
+                       int h = k.threadLocalHashCode & (newLen - 1);
+                       while (newTab[h] != null)
+                           h = nextIndex(h, newLen);
+                       newTab[h] = e;
+                       count++;
+                   }
+               }
+           }
+       
+           // 替换原有的 table，size、以及扩容阈值
+           setThreshold(newLen);
+           size = count;
+           table = newTab;
+       }
+       ```
 
 ### `get`方法
 
+`get` 方法相比较 `set` 方法要简单很多，整体的流程如下图所示：
+
+![ThreadLocal_get.png](https://s2.loli.net/2025/03/17/Zh7iHJqDUBV6jGt.png)
+
+具体源码如下：
+
+``` java
+public T get() {
+    Thread t = Thread.currentThread();
+    ThreadLocalMap map = getMap(t);
+    // 首先，获取到当前线程关联的 ThreadLocalMap
+    if (map != null) {
+        // 根据当前 ThreadLocal，定位到对应的 Entry
+        ThreadLocalMap.Entry e = map.getEntry(this);
+        if (e != null) {
+            @SuppressWarnings("unchecked")
+            T result = (T)e.value;
+            return result;
+        }
+    }
+    // 如果没有与之关联的 Entry，则将初始值与当前 ThreadLocal 绑定到一起，并返回初始值
+    return setInitialValue();
+}
+```
+
+`map.getEntry` 对应的源码如下：
+
+``` java
+private Entry getEntry(ThreadLocal<?> key) {
+    int i = key.threadLocalHashCode & (table.length - 1);
+    Entry e = table[i];
+    // 首次定位命中，则返回当前位置的 Entry
+    if (e != null && e.get() == key)
+        return e;
+    else
+        // 可能存在冲突，需要线性探测后续的位置
+        return getEntryAfterMiss(key, i, e);
+}
+
+// 首次未命中的后续处理
+private Entry getEntryAfterMiss(ThreadLocal<?> key, int i, Entry e) {
+    Entry[] tab = table;
+    int len = tab.length;
+
+    while (e != null) {
+        ThreadLocal<?> k = e.get();
+        if (k == key)
+            return e; // 冲突后找到的与当前 ThreadLocal 关联的 Entry
+        if (k == null)
+            /*
+            	当前位置的 ThreadLocal 被清除了，需要对这个位置进行清理
+            */
+            expungeStaleEntry(i);
+        else
+            // 线性探测下一个元素
+            i = nextIndex(i, len);
+        e = tab[i];
+    }
+    return null; // 说明当前 table 中没有与之关联的 Entry
+}
+```
+
+`setInitialValue` 对应的源码如下：
+
+``` java
+private T setInitialValue() {
+    /*
+    	当前 ThreadLocal 默认的初始值，可以通过 withInitial 的静态方法或者重写 ThreadLocal
+    	的 initialValue 来设置默认值
+    */
+    T value = initialValue();
+    
+    // 与 set 方法一致
+    Thread t = Thread.currentThread();
+    ThreadLocalMap map = getMap(t);
+    if (map != null) {
+        map.set(this, value);
+    } else {
+        createMap(t, value);
+    }
+    // set value 结束
+    
+    if (this instanceof TerminatingThreadLocal) {
+        TerminatingThreadLocal.register((TerminatingThreadLocal<?>) this);
+    }
+    
+    // 返回默认的初始值
+    return value;
+}
+```
+
 ## 相关问题
+
+1. `ThreadLocal` 是线程安全的吗？
+
+   在 《Java 并发编程实战》一书中提到过 “线程封闭”的概念， `ThreadLocal`本身就是一种 “线程封闭” 的机制，因此它一定是线程安全的
+
+2. `ThreadLocal` 会导致内存泄漏吗？
+
+   在网上很多的博客文章中，提到 `ThreadLocal` 就会想到它的 “内存泄漏” 问题，但实际上，这种情况几乎不可能出现。
+
+   首先，按照一般的说法，发生内存泄漏首先就需要满足以下两个条件：
+
+   - 线程没有消亡，如果是一般的线程池的配置，这一条件就很容易达到
+   - 相关的 `ThreadLocal` 只存在弱引用，并且发生了 GC 回收了这部分内存空间。这个条件很难达到，因为一般对于 `ThreadLocal` 的使用都是通过静态变量的方式进行引用，因此一直会存在至少一个强引用导致不会被 GC 回收
+
+   其次，即使同时满足了上述的两个条件，在 `set` 方法和 `get` 方法的过程中我们可以看到，会检测 `Entry` 对应的 `ThreadLocal` 是否被清除，对于已经被清除的 `Entry` 会调用 `expungeStaleEntry` 对其进行清理，也不会发生真正意义上的内存泄漏
+
+   综上所述，`ThreadLocal` 很难发生内存泄漏，即使发生了内存泄漏，`ThreadLocal` 也会自行清理这部分内容，而无需过多地干预这部分内容，但实际使用过程中，还是推荐保持良好的习惯，在使用完后便对其进行移除，如下所示：
+
+   ``` java
+   try {
+       SESSION_LOCAL.set("xxxx");
+   } finally {
+       SESSION_LOCAL.remove();
+   }
+   ```
