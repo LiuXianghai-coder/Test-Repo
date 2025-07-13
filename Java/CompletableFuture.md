@@ -140,9 +140,57 @@ allOfFuture.thenApply(any -> {
 
 例如对于一元依赖的处理（`thenApply`）是通过 `UniApply` 定义的后置处理，二元依赖（`thenCombine`）则是通过 `BiApply` 定义的后置处理
 
-### 编排实现
+### 零依赖
 
-以一元依赖为例，`thenApply` 的实现源码如下：
+一般带有任务的 `CompletableFuture` 的工厂方法实现如下：
+
+``` java
+private static final boolean USE_COMMON_POOL =
+        (ForkJoinPool.getCommonPoolParallelism() > 1);
+
+private static final Executor ASYNC_POOL = USE_COMMON_POOL ?
+        ForkJoinPool.commonPool() : new ThreadPerTaskExecutor();
+
+/*
+	如果不提供 Executor，则按照系统的可并发配置选择 ForkJoin 线程池或单线程线程池
+	一般情况下，为了更好地利用 CPU 资源，推荐使用自定义的线程池
+*/
+public static <U> CompletableFuture<U> supplyAsync(Supplier<U> supplier) {
+    return asyncSupplyStage(ASYNC_POOL, supplier);
+}
+
+public static <U> CompletableFuture<U> supplyAsync(Supplier<U> supplier,
+                                                   Executor executor) {
+    return asyncSupplyStage(screenExecutor(executor), supplier);
+}
+
+static <U> CompletableFuture<U> asyncSupplyStage(Executor e,
+                                                 Supplier<U> f) {
+    if (f == null) throw new NullPointerException();
+    CompletableFuture<U> d = new CompletableFuture<U>();
+    /* 
+    	创建一个 AsyncSupply，并使用 executor 执行这个任务
+    	具体的 AsyncSupply 在后文会有介绍
+    */
+    e.execute(new AsyncSupply<U>(d, f));
+    return d;
+}
+```
+
+不带执行任务，只有返回结果的 `CompleteableFuture` 的工厂方法实现如下：
+
+```java
+public static <U> CompletableFuture<U> completedFuture(U value) {
+    // 创建时将 result 设置为给定的值
+    return new CompletableFuture<U>((value == null) ? NIL : value);
+}
+```
+
+
+
+### 一元依赖
+
+`thenApply` 的实现源码如下：
 
 ```java
 public <U> CompletableFuture<U> thenApply(
@@ -269,7 +317,279 @@ final void postComplete() {
 
 除了在任务执行完后会调用 `postComplete` 来处理编排任务，显示地调用 `join` 和 `get` 方法也会在得到返回结果时调用 `postComplete` 来处理后续的编排任务
 
+一元依赖的执行过程简要如下图所示：
 
+![CompletableFuture_stack.png](https://s2.loli.net/2025/07/06/PRtFak3IDLBu4QC.png)
+
+### 二元依赖
+
+对于如下的依赖任务，一般是通过 `thenCombine` 来编排另一个 `CF`
+
+![image.png](https://s2.loli.net/2025/07/10/KJupfnm9NZs6PM3.png)
+
+在这个过程中，需要考虑的一个问题是对于后置依赖 `CF3` 的触发动作会不会多次触发？实际上，在 `Completion` 继承的 `ForkJoinTask` 中存在一个 `status` 字段，当尝试执行此 `Completion` 前会检查这个状态是否已经被触发过，如果已经触发过则不会再触发
+
+`thenCombine` 的实现如下：
+
+``` java
+public <U,V> CompletableFuture<V> thenCombine(
+    CompletionStage<? extends U> other,
+    BiFunction<? super T,? super U,? extends V> fn) {
+    return biApplyStage(null, other, fn);
+}
+
+private <U,V> CompletableFuture<V> biApplyStage(
+    Executor e, CompletionStage<U> o,
+    BiFunction<? super T,? super U,? extends V> f) {
+    CompletableFuture<U> b; Object r, s;
+    if (f == null || (b = o.toCompletableFuture()) == null)
+        throw new NullPointerException();
+    CompletableFuture<V> d = newIncompleteFuture();
+    /*
+    	如果此时的 CF1 和 CF2 没有执行完成，那么需要将后置任务都挂载到 
+    	CF1 和 CF2 的 stack 上
+    */
+    if ((r = result) == null || (s = b.result) == null)
+        bipush(b, new BiApply<T,U,V>(e, d, this, b, f));
+    else if (e == null)
+        d.biApply(r, s, f, null);
+    else
+        try {
+            // 使用自定义的线程池执行这两个合并任务
+            e.execute(new BiApply<T,U,V>(null, d, this, b, f));
+        } catch (Throwable ex) {
+            d.result = encodeThrowable(ex);
+        }
+    return d;
+}
+```
+
+假设此时这两个 `CF` 都没有执行完相关的任务，那么会将后置的任务挂载的这两个 `CF` 中，对应的源码如下：
+
+``` java
+/*
+	b 在这里代表的是 CF2,
+	c 表示的是带有 b 的后置任务
+*/
+final void bipush(CompletableFuture<?> b, BiCompletion<?,?,?> c) {
+    if (c != null) {
+        while (result == null) {
+            /*
+            	尝试挂载到 CF1 的 stack 上
+            */
+            if (tryPushStack(c)) {
+                if (b.result == null)
+                    /*
+                    	已经挂载到 CF1 的 stack，由于 CF2 此时也没有完成，因此也需要挂载到 CF2
+                        这是为了尽可能地减少后置任务的唤醒时间
+                    */
+                    b.unipush(new CoCompletion(c));
+                else if (result != null)
+                    /*
+                    	此时，两个 CF 都已经执行完成，因此直接唤醒后置任务即可
+                    */
+                    c.tryFire(SYNC);
+                return;
+            }
+        }
+        /*
+        	走到这说明 CF1 已经执行完成，但不确定 CF2 是否已经执行完成
+        	因此只需挂载到 CF2，让 CF2 触发后置任务即可
+        */
+        b.unipush(c);
+    }
+}
+```
+
+比较关心的是 `BiApply`，它定义了后置触发任务的相关动作：
+
+``` java
+@SuppressWarnings("serial")
+static final class BiApply<T,U,V> extends BiCompletion<T,U,V> {
+    BiFunction<? super T,? super U,? extends V> fn;
+    
+    /*
+    	dep：thenCombine 返回的 CF
+    	src：CF1
+    	snd：CF2
+    	fn：后置任务
+    */
+    BiApply(Executor executor, CompletableFuture<V> dep,
+            CompletableFuture<T> src, CompletableFuture<U> snd,
+            BiFunction<? super T,? super U,? extends V> fn) {
+        super(executor, dep, src, snd); this.fn = fn;
+    }
+    
+    final CompletableFuture<V> tryFire(int mode) {
+        CompletableFuture<V> d;
+        CompletableFuture<T> a;
+        CompletableFuture<U> b;
+        Object r, s; BiFunction<? super T,? super U,? extends V> f;
+        if ((d = dep) == null || (f = fn) == null
+            || (a = src) == null || (r = a.result) == null
+            || (b = snd) == null || (s = b.result) == null
+            || !d.biApply(r, s, f, mode > 0 ? null : this))
+            return null;
+        dep = null; src = null; snd = null; fn = null;
+        return d.postFire(a, b, mode);
+    }
+}
+```
+
+当 `CF1` 和 `CF2` 都执行完成后，会执行 `biApply` 方法，对应的实现如下：
+
+``` java
+final <R,S> boolean biApply(Object r, Object s,
+                            BiFunction<? super R,? super S,? extends T> f,
+                            BiApply<R,S,T> c) {
+    Throwable x;
+    tryComplete: if (result == null) { // 注意：这里的 result 是返回的 CF 的 result
+        if (r instanceof AltResult) {
+            if ((x = ((AltResult)r).ex) != null) {
+                completeThrowable(x, r);
+                break tryComplete;
+            }
+            r = null;
+        }
+        if (s instanceof AltResult) {
+            if ((x = ((AltResult)s).ex) != null) {
+                completeThrowable(x, s);
+                break tryComplete;
+            }
+            s = null;
+        }
+        try {
+            /*
+            	这里会对唤醒状态进行一次检查，防止被重复唤醒
+            */
+            if (c != null && !c.claim())
+                return false;
+            
+            /*
+            	将两个 CF 的执行结果作为参数，唤醒后置任务
+            */
+            @SuppressWarnings("unchecked") R rr = (R) r;
+            @SuppressWarnings("unchecked") S ss = (S) s;
+            completeValue(f.apply(rr, ss));
+        } catch (Throwable ex) {
+            completeThrowable(ex);
+        }
+    }
+    return true;
+}
+```
+
+`claim` 方法的定义如下：
+
+``` java
+final boolean claim() {
+    Executor e = executor;
+    /*
+    	CAS 修改当前任务的状态，最终只有一个 CF 的唤醒会成功
+    	因此避免了重复唤醒
+    */
+    if (compareAndSetForkJoinTaskTag((short)0, (short)1)) {
+        if (e == null)
+            return true;
+        executor = null; // disable
+        e.execute(this);
+    }
+    return false;
+}
+```
+
+对应的执行流程如下：
+
+![CompletableFuture_combine.png](https://s2.loli.net/2025/07/10/tLlVYaIhJwyvANO.png)
+
+### 多元依赖
+
+多元依赖的实现主要是通过 `allOf` 和 `anyOf` 方法来实现的，以较为复杂的 `allOf` 为例，在处理的过程中会将 `CF` 编排成一个平衡二叉树的数据结构，不断通过子节点唤醒父节点的形式完成回调的处理
+
+假设现在存在如下的多元依赖 `CF`：
+
+``` java
+CompletableFuture<Object> cf3 = cf1.thenApply(CompletableFutureTest::task3);
+CompletableFuture<Object> cf4 = cf1.thenCombine(cf2, CompletableFutureTest::task4);
+CompletableFuture<Object> cf5 = cf2.thenApply(CompletableFutureTest::task5);
+CompletableFuture<String> cf6 = CompletableFuture.allOf(cf3, cf4, cf5).thenApply(v -> {
+    CompletableFutureTest.task6(cf3.join(), cf4.join(), cf5.join());
+    return "result";
+});
+```
+
+那么使用 `allOf` 在处理过程中对 `cf6` 的编排结构如下：
+
+![CompletableFuture_andTree.png](https://s2.loli.net/2025/07/13/LozjwQaGm82qvNu.png)
+
+以 `allOf` 为例，对应的实现源码如下：
+
+``` java
+static CompletableFuture<Void> andTree(CompletableFuture<?>[] cfs,
+                                       int lo, int hi) {
+    CompletableFuture<Void> d = new CompletableFuture<Void>();
+    if (lo > hi) // empty
+        d.result = NIL;
+    else {
+        CompletableFuture<?> a, b; Object r, s, z; Throwable x;
+        int mid = (lo + hi) >>> 1;
+        /*
+        	将这些 CF 够造成二叉树的编排形式
+        */
+        if ((a = (lo == mid ? cfs[lo] :
+                  andTree(cfs, lo, mid))) == null ||
+            (b = (lo == hi ? a : (hi == mid+1) ? cfs[hi] :
+                  andTree(cfs, mid+1, hi))) == null)
+            throw new NullPointerException();
+        if ((r = a.result) == null || (s = b.result) == null)
+            a.bipush(b, new BiRelay<>(d, a, b));
+        else if ((r instanceof AltResult
+                  && (x = ((AltResult)(z = r)).ex) != null) ||
+                 (s instanceof AltResult
+                  && (x = ((AltResult)(z = s)).ex) != null))
+            d.result = encodeThrowable(x, z);
+        else
+            d.result = NIL;
+    }
+    return d;
+}
+```
+
+`BiRelay` 的实现如下：
+
+``` java
+@SuppressWarnings("serial")
+static final class BiRelay<T,U> extends BiCompletion<T,U,Void> { // for And
+    BiRelay(CompletableFuture<Void> dep,
+            CompletableFuture<T> src, CompletableFuture<U> snd) {
+        super(null, dep, src, snd);
+    }
+    final CompletableFuture<Void> tryFire(int mode) {
+        CompletableFuture<Void> d;
+        CompletableFuture<T> a;
+        CompletableFuture<U> b;
+        Object r, s, z; Throwable x;
+        /*
+        	依赖的前置 CF 都完成的情况下，才触发当前 CF 节点的后置回调处理
+        */
+        if ((d = dep) == null
+            || (a = src) == null || (r = a.result) == null
+            || (b = snd) == null || (s = b.result) == null)
+            return null;
+        if (d.result == null) {
+            if ((r instanceof AltResult
+                 && (x = ((AltResult)(z = r)).ex) != null) ||
+                (s instanceof AltResult
+                 && (x = ((AltResult)(z = s)).ex) != null))
+                d.completeThrowable(x, z);
+            else
+                d.completeNull();
+        }
+        src = null; snd = null; dep = null;
+        return d.postFire(a, b, mode);
+    }
+}
+```
 
 
 
